@@ -1,0 +1,5 @@
+dirgo
+bin/
+.vscode
+*_test.go
+improvements.md
