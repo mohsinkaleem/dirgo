@@ -25,13 +25,22 @@ type Model struct {
 	totalFiles int
 	totalDirs  int
 
+	// Deep totals (including all subdirectories recursively)
+	deepTotalFiles int64
+	deepTotalDirs  int64
+
 	// Navigation
-	cursor  int
-	offset  int
-	history []string
+	cursor int
+	offset int
 
 	// Scan cache: LRU with bounded size
 	cache *lruCache
+
+	// Scan progress: shared with scanner goroutine
+	scanProg      *ScanProgress
+	scanProgFiles int64 // snapshot for display
+	scanProgDirs  int64
+	scanProgSize  int64
 
 	// View
 	width  int
@@ -51,10 +60,11 @@ type Model struct {
 	// Modes
 	loading    bool
 	showHidden bool
-	dirOnly    bool
+	viewFilter ViewFilter
 	topMode    bool
 	helpMode   bool
 	searchMode bool
+	gotoMode   bool
 
 	// Stale cache indicator: true when viewing cached (not freshly scanned) data
 	fromCache bool
@@ -62,6 +72,7 @@ type Model struct {
 	// Components
 	spinner     spinner.Model
 	searchInput textinput.Model
+	gotoInput   textinput.Model
 	keys        KeyMap
 
 	// Error
@@ -79,25 +90,31 @@ func NewModel(path string) Model {
 	ti.CharLimit = 64
 	ti.Width = 30
 
+	gi := textinput.New()
+	gi.Placeholder = "path (e.g. ~/Downloads, /tmp)..."
+	gi.CharLimit = 256
+	gi.Width = 50
+
 	cache := newLRUCache(100)
 	_ = cache.LoadFromDisk() // best-effort load
 
 	return Model{
 		path:          path,
 		loading:       true,
-		showHidden:    false,
+		showHidden:    true,
 		keys:          DefaultKeyMap(),
 		spinner:       s,
 		searchInput:   ti,
-		history:       make([]string, 0),
+		gotoInput:     gi,
 		cursorHistory: make(map[string]string),
 		cache:         cache,
 		viewBuf:       &strings.Builder{},
+		scanProg:      &ScanProgress{},
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(scanDirectory(m.path), m.spinner.Tick)
+	return tea.Batch(scanDirectory(m.path, m.scanProg), m.spinner.Tick)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -108,6 +125,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// Rebuild separator cache (View has value receiver, so caching there is lost)
+		m.cachedSep = lipgloss.NewStyle().Foreground(colorDimmer).Width(m.width).Render(strings.Repeat("─", m.width))
+		m.cachedSepWidth = m.width
+		return m, nil
+
+	case tea.MouseMsg:
+		if !m.loading && !m.helpMode {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				m = m.moveCursor(-3)
+				return m, m.lineCountForSelected()
+			case tea.MouseButtonWheelDown:
+				m = m.moveCursor(3)
+				return m, m.lineCountForSelected()
+			}
+		}
 		return m, nil
 
 	case scanResultMsg:
@@ -115,11 +148,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cache.Put(msg.path, msg)
 		m.loading = false
 		m.fromCache = false
+		m.scanProg = nil
+		m.scanProgFiles = 0
+		m.scanProgDirs = 0
+		m.scanProgSize = 0
 		m.path = msg.path
 		m.entries = msg.entries
 		m.totalSize = msg.totalSize
 		m.totalFiles = msg.totalFiles
 		m.totalDirs = msg.totalDirs
+
+		// Compute deep totals (immediate + recursive children)
+		m.deepTotalFiles = int64(msg.totalFiles)
+		m.deepTotalDirs = int64(msg.totalDirs)
+		for _, e := range msg.entries {
+			if e.IsDir {
+				m.deepTotalFiles += int64(e.ChildFiles)
+				m.deepTotalDirs += int64(e.ChildDirs)
+			}
+		}
+
 		m.cursor = 0
 		m.offset = 0
 		m.applyFilter()
@@ -155,6 +203,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg.err
 		return m, nil
+
+	case trashResultMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		// Remove deleted entry locally (avoid expensive full rescan)
+		for i, e := range m.entries {
+			if e.Name == msg.name {
+				m.entries = append(m.entries[:i], m.entries[i+1:]...)
+				break
+			}
+		}
+		// Update totals
+		m.totalSize -= msg.size
+		if m.totalSize < 0 {
+			m.totalSize = 0
+		}
+		if msg.isDir {
+			m.totalDirs--
+		} else {
+			m.totalFiles--
+		}
+		// Recompute percentages
+		if m.totalSize > 0 {
+			for i := range m.entries {
+				m.entries[i].Percentage = float64(m.entries[i].Size) / float64(m.totalSize) * 100
+			}
+		} else {
+			for i := range m.entries {
+				m.entries[i].Percentage = 0
+			}
+		}
+		m.computeDeepTotals()
+		m.applyFilter()
+		// Adjust cursor to stay in bounds
+		if m.cursor >= len(m.filtered) {
+			m.cursor = len(m.filtered) - 1
+		}
+		if m.cursor < 0 {
+			m.cursor = 0
+		}
+		m.ensureVisible()
+		// Invalidate stale cache for this directory
+		m.cache.Delete(m.path)
+		return m, m.lineCountForSelected()
 
 	case lineCountMsg:
 		// Update line count for matching entry
@@ -209,11 +304,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.loading {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
+			// Read scan progress for display
+			if m.scanProg != nil {
+				m.scanProgFiles = m.scanProg.Files.Load()
+				m.scanProgDirs = m.scanProg.Dirs.Load()
+				m.scanProgSize = m.scanProg.Size.Load()
+			}
 			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
+		// If in goto mode, handle text input first
+		if m.gotoMode {
+			switch {
+			case key.Matches(msg, m.keys.Escape):
+				m.gotoMode = false
+				m.gotoInput.SetValue("")
+				m.gotoInput.Blur()
+				return m, nil
+			case msg.Type == tea.KeyEnter:
+				m.gotoMode = false
+				m.gotoInput.Blur()
+				target := m.gotoInput.Value()
+				m.gotoInput.SetValue("")
+				if target == "" {
+					return m, nil
+				}
+				return m.navigateTo(target)
+			default:
+				var cmd tea.Cmd
+				m.gotoInput, cmd = m.gotoInput.Update(msg)
+				return m, cmd
+			}
+		}
+
 		// If in search mode, handle text input first
 		if m.searchMode {
 			switch {
@@ -229,6 +354,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchMode = false
 				m.searchInput.Blur()
 				return m, nil
+			case key.Matches(msg, m.keys.Up):
+				m = m.moveCursor(-1)
+				return m, m.lineCountForSelected()
+			case key.Matches(msg, m.keys.Down):
+				m = m.moveCursor(1)
+				return m, m.lineCountForSelected()
 			default:
 				var cmd tea.Cmd
 				m.searchInput, cmd = m.searchInput.Update(msg)
@@ -301,12 +432,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Refresh):
 			// Smart refresh: check modtime before full rescan
 			m.err = nil
+			m.scanProg = &ScanProgress{}
 			if cached, ok := m.cache.Get(m.path); ok {
 				m.loading = true
-				return m, tea.Batch(smartRefreshCmd(m.path, cached), m.spinner.Tick)
+				return m, tea.Batch(smartRefreshCmd(m.path, cached, m.scanProg), m.spinner.Tick)
 			}
 			m.loading = true
-			return m, tea.Batch(scanDirectory(m.path), m.spinner.Tick)
+			return m, tea.Batch(scanDirectory(m.path, m.scanProg), m.spinner.Tick)
 
 		case key.Matches(msg, m.keys.TopView):
 			m.topMode = !m.topMode
@@ -324,6 +456,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchInput.Focus()
 			return m, textinput.Blink
 
+		case key.Matches(msg, m.keys.GoTo):
+			m.gotoMode = true
+			m.gotoInput.SetValue("")
+			m.gotoInput.Focus()
+			return m, textinput.Blink
+
 		case key.Matches(msg, m.keys.Hidden):
 			m.showHidden = !m.showHidden
 			m.applyFilter()
@@ -332,10 +470,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, m.keys.DirOnly):
-			m.dirOnly = !m.dirOnly
+			// Cycle: all → dirs only → files only → all
+			m.viewFilter = (m.viewFilter + 1) % 3
 			m.applyFilter()
 			m.cursor = 0
 			m.offset = 0
+			return m, nil
+
+		case key.Matches(msg, m.keys.Delete):
+			if len(m.filtered) > 0 {
+				entry := m.filtered[m.cursor]
+				fullPath := filepath.Join(m.path, entry.Name)
+				return m, trashCmd(fullPath, entry.Name, entry.Size, entry.IsDir)
+			}
 			return m, nil
 
 		case key.Matches(msg, m.keys.CountAll):
@@ -370,33 +517,38 @@ func (m Model) View() string {
 
 	m.viewBuf.Reset()
 
-	// Header (1 line)
+	// Header (1 or 2 lines depending on path length)
+	hdrLines := headerLineCount(m)
 	m.viewBuf.WriteString(renderHeader(m))
 	m.viewBuf.WriteString("\n")
 
-	// Separator (cached, rebuilt only when width changes)
-	if m.cachedSepWidth != m.width {
-		m.cachedSep = lipgloss.NewStyle().Foreground(colorDimmer).Width(m.width).Render(strings.Repeat("─", m.width))
-		m.cachedSepWidth = m.width
-	}
+	// Separator (cached in Update on WindowSizeMsg)
 	m.viewBuf.WriteString(m.cachedSep)
 	m.viewBuf.WriteString("\n")
 
-	// Reserved: header (1) + sep (1) + footer sep (1) + footer (1) + padding (1) = 5
-	listHeight := m.height - 5
+	// Reserved: header (hdrLines) + sep (1) + footer sep (1) + footer (1) + padding (1) = 4 + hdrLines
+	listHeight := m.height - 4 - hdrLines
 	if listHeight < 1 {
 		listHeight = 1
 	}
 
 	if m.loading {
 		spinnerView := m.spinner.View() + " Scanning..."
-		padTop := listHeight / 2
+		if m.scanProgFiles > 0 || m.scanProgDirs > 0 {
+			spinnerView += fmt.Sprintf("\n\n  %d files · %d dirs · %s scanned",
+				m.scanProgFiles, m.scanProgDirs, formatSize(m.scanProgSize))
+		}
+		lines := strings.Count(spinnerView, "\n") + 1
+		padTop := (listHeight - lines) / 2
+		if padTop < 0 {
+			padTop = 0
+		}
 		for i := 0; i < padTop; i++ {
 			m.viewBuf.WriteString("\n")
 		}
 		m.viewBuf.WriteString(lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(spinnerView))
 		m.viewBuf.WriteString("\n")
-		for i := padTop + 1; i < listHeight; i++ {
+		for i := padTop + lines; i < listHeight; i++ {
 			m.viewBuf.WriteString("\n")
 		}
 	} else if m.err != nil {
@@ -482,7 +634,7 @@ func (m *Model) ensureVisible() {
 func (m *Model) applyFilter() {
 	search := m.searchInput.Value()
 	// Reuse underlying array to reduce GC pressure
-	m.filtered = filterEntriesInto(m.filtered[:0], m.entries, m.showHidden, m.dirOnly, search)
+	m.filtered = filterEntriesInto(m.filtered[:0], m.entries, m.showHidden, m.viewFilter, search)
 	if m.topMode && len(m.filtered) > 10 {
 		m.filtered = m.filtered[:10]
 	}
@@ -518,7 +670,6 @@ func (m Model) navigateUp() (Model, tea.Cmd) {
 		m.rememberCursor(m.path, m.filtered[m.cursor].Name)
 	}
 
-	m.history = append(m.history, m.path)
 	m.path = parent
 	m.err = nil
 	m.searchInput.SetValue("")
@@ -530,6 +681,7 @@ func (m Model) navigateUp() (Model, tea.Cmd) {
 		m.totalSize = cached.totalSize
 		m.totalFiles = cached.totalFiles
 		m.totalDirs = cached.totalDirs
+		m.computeDeepTotals()
 		m.cursor = 0
 		m.offset = 0
 		m.applyFilter()
@@ -546,7 +698,8 @@ func (m Model) navigateUp() (Model, tea.Cmd) {
 	// For async scan, remember to restore cursor when results arrive
 	m.pendingCursorEntry = childName
 	m.loading = true
-	return m, tea.Batch(scanDirectory(parent), m.spinner.Tick)
+	m.scanProg = &ScanProgress{}
+	return m, tea.Batch(scanDirectory(parent, m.scanProg), m.spinner.Tick)
 }
 
 func (m Model) navigateIn() (Model, tea.Cmd) {
@@ -566,7 +719,6 @@ func (m Model) navigateIn() (Model, tea.Cmd) {
 	m.rememberCursor(m.path, entry.Name)
 
 	target := filepath.Join(m.path, entry.Name)
-	m.history = append(m.history, m.path)
 	m.path = target
 	m.err = nil
 	m.searchInput.SetValue("")
@@ -582,6 +734,7 @@ func (m Model) navigateIn() (Model, tea.Cmd) {
 		m.totalSize = cached.totalSize
 		m.totalFiles = cached.totalFiles
 		m.totalDirs = cached.totalDirs
+		m.computeDeepTotals()
 		m.cursor = 0
 		m.offset = 0
 		m.applyFilter()
@@ -601,7 +754,75 @@ func (m Model) navigateIn() (Model, tea.Cmd) {
 		m.pendingCursorEntry = pendingEntry
 	}
 	m.loading = true
-	return m, tea.Batch(scanDirectory(target), m.spinner.Tick)
+	m.scanProg = &ScanProgress{}
+	return m, tea.Batch(scanDirectory(target, m.scanProg), m.spinner.Tick)
+}
+
+func (m Model) navigateTo(target string) (Model, tea.Cmd) {
+	// Expand ~ to home directory
+	if strings.HasPrefix(target, "~") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			target = filepath.Join(home, target[1:])
+		}
+	}
+
+	// Resolve relative paths
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(m.path, target)
+	}
+
+	// Clean the path
+	target = filepath.Clean(target)
+
+	// Verify it exists and is a directory
+	info, err := os.Stat(target)
+	if err != nil {
+		m.err = fmt.Errorf("cannot navigate: %w", err)
+		return m, nil
+	}
+	if !info.IsDir() {
+		m.err = fmt.Errorf("not a directory: %s", target)
+		return m, nil
+	}
+
+	// Save current cursor position
+	if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
+		m.rememberCursor(m.path, m.filtered[m.cursor].Name)
+	}
+
+	m.path = target
+	m.err = nil
+	m.searchInput.SetValue("")
+	m.searchMode = false
+
+	if cached, ok := m.cache.Get(target); ok {
+		m.loading = false
+		m.fromCache = true
+		m.entries = cached.entries
+		m.totalSize = cached.totalSize
+		m.totalFiles = cached.totalFiles
+		m.totalDirs = cached.totalDirs
+		m.computeDeepTotals()
+		m.cursor = 0
+		m.offset = 0
+		m.applyFilter()
+		return m, m.lineCountForSelected()
+	}
+	m.loading = true
+	m.scanProg = &ScanProgress{}
+	return m, tea.Batch(scanDirectory(target, m.scanProg), m.spinner.Tick)
+}
+
+func (m *Model) computeDeepTotals() {
+	m.deepTotalFiles = int64(m.totalFiles)
+	m.deepTotalDirs = int64(m.totalDirs)
+	for _, e := range m.entries {
+		if e.IsDir {
+			m.deepTotalFiles += int64(e.ChildFiles)
+			m.deepTotalDirs += int64(e.ChildDirs)
+		}
+	}
 }
 
 func (m Model) quickLook() (Model, tea.Cmd) {
@@ -676,5 +897,48 @@ func openPath(path string) {
 	}
 	cmd.Stdout = nil
 	cmd.Stderr = nil
-	cmd.Start()
+	if err := cmd.Start(); err == nil {
+		go cmd.Wait() // reap child process to avoid zombies
+	}
+}
+
+// trashResultMsg is returned after a trash operation.
+type trashResultMsg struct {
+	err   error
+	name  string // entry name that was deleted
+	size  int64  // size of deleted entry
+	isDir bool   // whether it was a directory
+}
+
+// trashCmd moves the given path to the system trash asynchronously.
+func trashCmd(path, name string, size int64, isDir bool) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+		switch runtime.GOOS {
+		case "darwin":
+			// Use AppleScript so Finder properly manages the Trash.
+			// Escape backslashes and double quotes to prevent injection.
+			escaped := strings.ReplaceAll(path, `\`, `\\`)
+			escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+			script := fmt.Sprintf(`tell application "Finder" to delete POSIX file "%s"`, escaped)
+			out, e := exec.Command("osascript", "-e", script).CombinedOutput()
+			if e != nil {
+				err = fmt.Errorf("trash failed: %s", strings.TrimSpace(string(out)))
+			}
+		default:
+			// Generic fallback: move to ~/.Trash
+			home, herr := os.UserHomeDir()
+			if herr != nil {
+				err = fmt.Errorf("trash: cannot find home dir: %w", herr)
+				break
+			}
+			dest := filepath.Join(home, ".Trash", filepath.Base(path))
+			// Avoid overwriting existing items in Trash
+			if _, statErr := os.Stat(dest); statErr == nil {
+				dest = dest + ".1"
+			}
+			err = os.Rename(path, dest)
+		}
+		return trashResultMsg{err: err, name: name, size: size, isDir: isDir}
+	}
 }

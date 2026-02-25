@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // formatSize converts bytes to a human-readable string.
@@ -56,6 +58,59 @@ func truncateStr(s string, max int) string {
 		return string(runes[:max])
 	}
 	return string(runes[:max-1]) + "…"
+}
+
+// truncateStrVisual truncates a string to max visual width with ellipsis.
+// Uses lipgloss.Width for correct handling of emoji and wide characters.
+func truncateStrVisual(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= maxWidth {
+		return s
+	}
+	runes := []rune(s)
+	for i := len(runes) - 1; i >= 0; i-- {
+		candidate := string(runes[:i]) + "…"
+		if lipgloss.Width(candidate) <= maxWidth {
+			return candidate
+		}
+	}
+	if maxWidth >= 1 {
+		return "…"
+	}
+	return ""
+}
+
+// padRightVisual pads a string to the given visual width with spaces.
+// Uses lipgloss.Width for correct handling of emoji and wide characters.
+func padRightVisual(s string, width int) string {
+	w := lipgloss.Width(s)
+	if w >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-w)
+}
+
+// truncatePath truncates a path to fit within maxWidth, removing leading
+// segments and replacing with ellipsis if needed.
+func truncatePath(path string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if lipgloss.Width(path) <= maxWidth {
+		return path
+	}
+	parts := strings.Split(path, "/")
+	for len(parts) > 1 {
+		parts = parts[1:]
+		candidate := "…/" + strings.Join(parts, "/")
+		if lipgloss.Width(candidate) <= maxWidth {
+			return candidate
+		}
+	}
+	// Even a single part is too long, truncate from right
+	return truncateStrVisual(path, maxWidth)
 }
 
 // bufPool reuses read buffers for line counting to avoid per-call allocations.

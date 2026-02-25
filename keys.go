@@ -23,6 +23,8 @@ type KeyMap struct {
 	Quit      key.Binding
 	Escape    key.Binding
 	CountAll  key.Binding
+	GoTo      key.Binding
+	Delete    key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings.
@@ -85,8 +87,12 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("h", "toggle hidden"),
 		),
 		DirOnly: key.NewBinding(
+			key.WithKeys("f"),
+			key.WithHelp("f", "cycle filter"),
+		),
+		Delete: key.NewBinding(
 			key.WithKeys("d"),
-			key.WithHelp("d", "dir only"),
+			key.WithHelp("d", "move to trash"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),
@@ -102,7 +108,11 @@ func DefaultKeyMap() KeyMap {
 		),
 		CountAll: key.NewBinding(
 			key.WithKeys("s"),
-			key.WithHelp("s", "count all lines"),
+			key.WithHelp("s", "count lines (all)"),
+		),
+		GoTo: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "cd to path"),
 		),
 	}
 }

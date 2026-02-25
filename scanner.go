@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -44,11 +45,20 @@ type scanUpToDateMsg struct {
 	path string
 }
 
+// ScanProgress holds live progress counters updated by the scanner goroutine.
+// Read via atomic loads from the UI goroutine (spinner tick).
+type ScanProgress struct {
+	Files atomic.Int64
+	Dirs  atomic.Int64
+	Size  atomic.Int64
+}
+
 // --- Commands ---
 
 // scanDirectory performs a full directory listing with sizes computed upfront.
 // Directory sizes are computed in parallel using bounded concurrency.
-func scanDirectory(path string) tea.Cmd {
+// If prog is non-nil, progress counters are updated as the scan proceeds.
+func scanDirectory(path string, prog *ScanProgress) tea.Cmd {
 	return func() tea.Msg {
 		absPath, err := filepath.Abs(path)
 		if err != nil {
@@ -139,7 +149,7 @@ func scanDirectory(path string) tea.Cmd {
 					dirPath := filepath.Join(absPath, info.name)
 					// Use os.ReadDir + manual recursion instead of filepath.WalkDir
 					// to reduce syscall overhead (one getdirentries per dir vs Lstat per entry)
-					size, files, dirs := dirSizeRecursive(dirPath)
+					size, files, dirs := dirSizeRecursive(dirPath, prog)
 					results[resultIdx] = dirResult{index: info.index, size: size, childFiles: files, childDirs: dirs}
 				}(ri, di)
 			}
@@ -227,16 +237,16 @@ func scanDirectory(path string) tea.Cmd {
 }
 
 // smartRefreshCmd checks if a directory has changed before triggering a full rescan.
-func smartRefreshCmd(path string, cached scanResultMsg) tea.Cmd {
+func smartRefreshCmd(path string, cached scanResultMsg, prog *ScanProgress) tea.Cmd {
 	return func() tea.Msg {
 		info, err := os.Stat(path)
 		if err != nil {
-			return scanDirectory(path)() // fallback to full scan
+			return scanDirectory(path, prog)() // fallback to full scan
 		}
 		if info.ModTime().Equal(cached.dirModTime) {
 			return scanUpToDateMsg{path: path}
 		}
-		return scanDirectory(path)() // directory modified, full rescan
+		return scanDirectory(path, prog)() // directory modified, full rescan
 	}
 }
 
@@ -286,7 +296,7 @@ func countAllLinesCmd(entries []FileEntry, dir string) tea.Cmd {
 // of a directory using os.ReadDir + manual recursion. This is more efficient than
 // filepath.WalkDir because os.ReadDir uses a single getdirentries syscall per
 // directory, and we only call Info() on files (not dirs) since we only need file sizes.
-func dirSizeRecursive(path string) (size int64, files int, dirs int) {
+func dirSizeRecursive(path string, prog *ScanProgress) (size int64, files int, dirs int) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return 0, 0, 0
@@ -294,7 +304,10 @@ func dirSizeRecursive(path string) (size int64, files int, dirs int) {
 	for _, e := range entries {
 		if e.IsDir() {
 			dirs++
-			s, f, d := dirSizeRecursive(filepath.Join(path, e.Name()))
+			if prog != nil {
+				prog.Dirs.Add(1)
+			}
+			s, f, d := dirSizeRecursive(filepath.Join(path, e.Name()), prog)
 			size += s
 			files += f
 			dirs += d
@@ -302,6 +315,10 @@ func dirSizeRecursive(path string) (size int64, files int, dirs int) {
 			files++
 			if info, err := e.Info(); err == nil {
 				size += info.Size()
+				if prog != nil {
+					prog.Files.Add(1)
+					prog.Size.Add(info.Size())
+				}
 			}
 		}
 	}

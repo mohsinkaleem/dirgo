@@ -8,30 +8,81 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// renderHeader renders the top summary bar.
-func renderHeader(m Model) string {
-	path := headerPathStyle.Render(shortenPath(m.path))
+// buildStatsLine assembles the stats/badges portion of the header (right-hand side).
+func buildStatsLine(m Model) string {
 	total := headerStatStyle.Render(fmt.Sprintf("Total: %s", formatSize(m.totalSize)))
-	files := headerStatStyle.Render(fmt.Sprintf("%d files", m.totalFiles))
-	dirs := headerStatStyle.Render(fmt.Sprintf("%d dirs", m.totalDirs))
+
+	// Show deep totals if they differ from immediate counts
+	fileStr := fmt.Sprintf("%d", m.totalFiles)
+	if m.deepTotalFiles > int64(m.totalFiles) {
+		fileStr += "/" + formatCount(int(m.deepTotalFiles))
+	}
+	fileStr += " files"
+	files := headerStatStyle.Render(fileStr)
+
+	dirStr := fmt.Sprintf("%d", m.totalDirs)
+	if m.deepTotalDirs > int64(m.totalDirs) {
+		dirStr += "/" + formatCount(int(m.deepTotalDirs))
+	}
+	dirStr += " dirs"
+	dirs := headerStatStyle.Render(dirStr)
+
 	div := headerDivider.String()
 
-	line := path + div + total + div + files + div + dirs
-
+	statsLine := div + total + div + files + div + dirs
 	if m.topMode {
-		line += div + headerBadgeStyle.Render("TOP 10")
+		statsLine += div + headerBadgeStyle.Render("TOP 10")
 	}
-	if m.dirOnly {
-		line += div + headerBadgeStyle.Render("DIRS")
+	switch m.viewFilter {
+	case FilterDirsOnly:
+		statsLine += div + headerBadgeStyle.Render("DIRS")
+	case FilterFilesOnly:
+		statsLine += div + headerBadgeStyle.Render("FILES")
 	}
 	if m.showHidden {
-		line += div + headerBadgeStyle.Render("HIDDEN")
+		statsLine += div + headerBadgeStyle.Render("HIDDEN")
 	}
 	if m.fromCache {
-		line += div + headerCachedStyle.Render("⚡cached")
+		statsLine += div + headerCachedStyle.Render("⚡cached")
+	}
+	return statsLine
+}
+
+// headerLineCount returns how many lines the header will occupy (1 or 2).
+func headerLineCount(m Model) int {
+	if m.width == 0 {
+		return 1
+	}
+	statsLine := buildStatsLine(m)
+	statsWidth := lipgloss.Width(statsLine)
+	// headerStyle has Padding(0,1) = 2 horizontal chars
+	maxPathWidth := m.width - statsWidth - 2
+	if maxPathWidth >= 12 {
+		return 1
+	}
+	return 2
+}
+
+// renderHeader renders the top summary bar.
+func renderHeader(m Model) string {
+	statsLine := buildStatsLine(m)
+	statsWidth := lipgloss.Width(statsLine)
+
+	// headerStyle has Padding(0,1) = 2 horizontal chars; leave 2 extra guard chars
+	maxPathWidth := m.width - statsWidth - 2
+	if maxPathWidth >= 12 {
+		// Single-line: path ++ stats
+		path := headerPathStyle.Render(truncatePath(shortenPath(m.path), maxPathWidth))
+		return headerStyle.Width(m.width).Render(path + statsLine)
 	}
 
-	return headerStyle.Width(m.width).Render(line)
+	// Two-line: path on its own line, stats below
+	pathWidth := m.width - 2 // account for padding
+	if pathWidth < 1 {
+		pathWidth = 1
+	}
+	path := headerPathStyle.Render(truncatePath(shortenPath(m.path), pathWidth))
+	return headerStyle.Width(m.width).Render(path + "\n" + statsLine)
 }
 
 // styledSeg renders text with a style, optionally with a selection background applied too.
@@ -108,9 +159,9 @@ func renderRow(m Model, index int, entry FileEntry, selected bool) string {
 		iconChar = "▸ "
 	}
 
-	// Name (truncated + padded to fixed width)
-	name := truncateStr(entry.Name, nameMaxWidth)
-	name = padRight(name, nameMaxWidth)
+	// Name (truncated + padded to fixed width, visual-width aware for emoji/wide chars)
+	name := truncateStrVisual(entry.Name, nameMaxWidth)
+	name = padRightVisual(name, nameMaxWidth)
 
 	szStr := padLeft(formatSize(entry.Size), 9)
 
@@ -155,7 +206,12 @@ func renderRow(m Model, index int, entry FileEntry, selected bool) string {
 // renderFooter renders the bottom keybinding bar.
 func renderFooter(m Model) string {
 	if m.searchMode {
-		return searchPromptStyle.Render(" / ") + m.searchInput.View()
+		return searchPromptStyle.Render(" / ") + m.searchInput.View() +
+			footerDescStyle.Render("  ↑↓ nav  ⏎ apply  esc cancel")
+	}
+
+	if m.gotoMode {
+		return searchPromptStyle.Render(" cd ") + m.gotoInput.View()
 	}
 
 	keys := []struct {
@@ -170,8 +226,10 @@ func renderFooter(m Model) string {
 		{"t", "top10"},
 		{"o", "finder"},
 		{"/", "search"},
+		{"c", "cd"},
 		{"h", "hidden"},
-		{"d", "dirs"},
+		{"f", "filter"},
+		{"d", "trash"},
 		{"s", "lines"},
 		{"?", "help"},
 		{"q", "quit"},
@@ -199,6 +257,7 @@ func renderHelp(m Model) string {
 	}{
 		{"↑ / k", "Move cursor up"},
 		{"↓ / j", "Move cursor down"},
+		{"Scroll", "Mouse wheel up/down"},
 		{"PgUp / ^U", "Page up"},
 		{"PgDn / ^D", "Page down"},
 		{"← / BS", "Go to parent (remembers position)"},
@@ -210,10 +269,13 @@ func renderHelp(m Model) string {
 		{"t", "Toggle top 10 view"},
 		{"o", "Open in Finder (macOS)"},
 		{"/", "Search / filter files"},
+		{"↑↓ in /", "Navigate filtered results"},
 		{"Esc", "Cancel search / close help"},
-		{"h", "Toggle hidden files"},
-		{"d", "Toggle directory-only view"},
-		{"L", "Count lines for all files"},
+		{"c", "Go to directory (cd)"},
+		{"h", "Toggle hidden files (on by default)"},
+		{"f", "Cycle filter: all → dirs → files"},
+		{"d", "Move selected entry to Trash"},
+		{"s", "Count lines for all files"},
 		{"?", "Show this help"},
 		{"q / Ctrl+C", "Quit"},
 	}

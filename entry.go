@@ -27,18 +27,30 @@ func SortBySize(entries []FileEntry) {
 	})
 }
 
-// FilterEntries returns a filtered slice based on visibility and directory-only settings.
-func FilterEntries(entries []FileEntry, showHidden, dirOnly bool, search string) []FileEntry {
-	return filterEntriesInto(make([]FileEntry, 0, len(entries)), entries, showHidden, dirOnly, search)
+// ViewFilter controls which entry types are visible.
+type ViewFilter int
+
+const (
+	FilterAll       ViewFilter = iota // show all entries
+	FilterDirsOnly                    // dirs only
+	FilterFilesOnly                   // files only
+)
+
+// FilterEntries returns a filtered slice based on visibility and view filter settings.
+func FilterEntries(entries []FileEntry, showHidden bool, filter ViewFilter, search string) []FileEntry {
+	return filterEntriesInto(make([]FileEntry, 0, len(entries)), entries, showHidden, filter, search)
 }
 
 // filterEntriesInto appends filtered entries into dst, allowing callers to reuse slices.
-func filterEntriesInto(dst []FileEntry, entries []FileEntry, showHidden, dirOnly bool, search string) []FileEntry {
+func filterEntriesInto(dst []FileEntry, entries []FileEntry, showHidden bool, filter ViewFilter, search string) []FileEntry {
 	for _, e := range entries {
 		if !showHidden && e.IsHidden {
 			continue
 		}
-		if dirOnly && !e.IsDir {
+		if filter == FilterDirsOnly && !e.IsDir {
+			continue
+		}
+		if filter == FilterFilesOnly && e.IsDir {
 			continue
 		}
 		if search != "" && !fuzzyMatch(e.Name, search) {
