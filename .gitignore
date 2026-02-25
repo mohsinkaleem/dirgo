@@ -2,4 +2,16 @@ dirgo
 bin/
 .vscode
 *_test.go
-improvements.md
+*.log
+*.out
+*.tmp
+*.cache
+*.bak
+*.DS_Store
+*.env
+coverage/
+build/
+vendor/
+*.prof
+*.test
+*.exe

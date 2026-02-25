@@ -40,32 +40,48 @@ var (
 			Foreground(colorDim).
 			SetString(" │ ")
 
-	rowNumStyle = lipgloss.NewStyle().
-			Foreground(colorDim).
-			Width(4).
-			Align(lipgloss.Right)
+	headerBadgeStyle = lipgloss.NewStyle().
+				Foreground(colorYellow).
+				Bold(true)
 
-	percentStyle = lipgloss.NewStyle().
+	headerCachedStyle = lipgloss.NewStyle().
+				Foreground(colorCyan)
+
+	// Row styles (pre-defined to avoid per-row allocation)
+	rowDimStyle = lipgloss.NewStyle().
+			Foreground(colorDim)
+
+	rowPctStyle = lipgloss.NewStyle().
 			Foreground(colorDim).
 			Width(6).
 			Align(lipgloss.Right)
 
-	separatorStyle = lipgloss.NewStyle().
-			Foreground(colorDimmer).
-			SetString(" │ ")
+	rowSepStyle = lipgloss.NewStyle().
+			Foreground(colorDimmer)
 
-	dirIconStyle = lipgloss.NewStyle().
+	rowIconStyle = lipgloss.NewStyle().
 			Foreground(colorDirIcon)
 
-	fileIconStyle = lipgloss.NewStyle().
-			Foreground(colorDim)
-
-	nameStyle = lipgloss.NewStyle().
+	rowNameStyle = lipgloss.NewStyle().
 			Foreground(colorFg)
 
-	sizeStyle = lipgloss.NewStyle().
-			Foreground(colorDim).
-			Align(lipgloss.Right)
+	rowNameSelStyle = lipgloss.NewStyle().
+			Foreground(colorSelFg).
+			Bold(true)
+
+	rowMetaStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("243")).
+			Italic(true)
+
+	rowPointerActiveStyle = lipgloss.NewStyle().
+				Foreground(colorCyan).
+				Bold(true)
+
+	rowPointerInactiveStyle = lipgloss.NewStyle().
+				Foreground(colorDim)
+
+	rowSelBgStyle = lipgloss.NewStyle().
+			Background(colorSelBg)
 
 	selectedStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -102,10 +118,6 @@ var (
 
 	helpDescStyle = lipgloss.NewStyle().
 			Foreground(colorFg)
-
-	lineCountStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("243")).
-			Italic(true)
 
 	searchPromptStyle = lipgloss.NewStyle().
 				Foreground(colorCyan).

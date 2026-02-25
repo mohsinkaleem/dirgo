@@ -18,16 +18,16 @@ func renderHeader(m Model) string {
 	line := path + div + total + div + files + div + dirs
 
 	if m.topMode {
-		line += div + lipgloss.NewStyle().Foreground(colorYellow).Bold(true).Render("TOP 10")
+		line += div + headerBadgeStyle.Render("TOP 10")
 	}
 	if m.dirOnly {
-		line += div + lipgloss.NewStyle().Foreground(colorYellow).Bold(true).Render("DIRS")
+		line += div + headerBadgeStyle.Render("DIRS")
 	}
 	if m.showHidden {
-		line += div + lipgloss.NewStyle().Foreground(colorYellow).Bold(true).Render("HIDDEN")
+		line += div + headerBadgeStyle.Render("HIDDEN")
 	}
 	if m.fromCache {
-		line += div + lipgloss.NewStyle().Foreground(colorCyan).Render("⚡cached")
+		line += div + headerCachedStyle.Render("⚡cached")
 	}
 
 	return headerStyle.Width(m.width).Render(line)
@@ -80,9 +80,11 @@ func renderRow(m Model, index int, entry FileEntry, selected bool) string {
 	if selected {
 		pointer = "▶ "
 	}
-	pointerSt := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
-	if !selected {
-		pointerSt = lipgloss.NewStyle().Foreground(colorDim)
+	var pointerSt lipgloss.Style
+	if selected {
+		pointerSt = rowPointerActiveStyle
+	} else {
+		pointerSt = rowPointerInactiveStyle
 	}
 
 	// Row number
@@ -111,24 +113,30 @@ func renderRow(m Model, index int, entry FileEntry, selected bool) string {
 
 	szStr := padLeft(formatSize(entry.Size), 9)
 
+	// Select name style based on selection state
+	var nameSt lipgloss.Style
+	if selected {
+		nameSt = rowNameSelStyle
+	} else {
+		nameSt = rowNameStyle
+	}
+
+	// Dynamic bar color style — we cache common colors but must handle per-row color
+	barSt := lipgloss.NewStyle().Foreground(bc)
+
 	// Assemble — apply selection background to each segment individually
 	// so inner ANSI resets don't clobber the row background.
 
 	parts := fmt.Sprintf("%s%s %s %s %s %s%s %s %s",
 		styledSeg(pointer, pointerSt, false), // pointer has its own highlight
-		styledSeg(numStr, lipgloss.NewStyle().Foreground(colorDim), selected),
-		styledSeg(barStr, lipgloss.NewStyle().Foreground(bc), selected),
-		styledSeg(pctStr, lipgloss.NewStyle().Foreground(colorDim).Width(6).Align(lipgloss.Right), selected),
-		styledSeg("│", lipgloss.NewStyle().Foreground(colorDimmer), selected),
-		styledSeg(iconChar, lipgloss.NewStyle().Foreground(colorDirIcon), selected),
-		styledSeg(name, lipgloss.NewStyle().Foreground(func() lipgloss.Color {
-			if selected {
-				return colorSelFg
-			}
-			return colorFg
-		}()).Bold(selected), selected),
-		styledSeg(szStr, lipgloss.NewStyle().Foreground(colorDim), selected),
-		styledSeg(rawMeta, lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true), selected),
+		styledSeg(numStr, rowDimStyle, selected),
+		styledSeg(barStr, barSt, selected),
+		styledSeg(pctStr, rowPctStyle, selected),
+		styledSeg("│", rowSepStyle, selected),
+		styledSeg(iconChar, rowIconStyle, selected),
+		styledSeg(name, nameSt, selected),
+		styledSeg(szStr, rowDimStyle, selected),
+		styledSeg(rawMeta, rowMetaStyle, selected),
 	)
 
 	// Pad row to full width and apply selection background to fill.
@@ -136,7 +144,7 @@ func renderRow(m Model, index int, entry FileEntry, selected bool) string {
 	if visualW < w {
 		padding := strings.Repeat(" ", w-visualW)
 		if selected {
-			padding = lipgloss.NewStyle().Background(colorSelBg).Render(padding)
+			padding = rowSelBgStyle.Render(padding)
 		}
 		parts += padding
 	}

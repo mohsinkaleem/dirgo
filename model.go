@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -36,7 +37,7 @@ type Model struct {
 	height int
 
 	// Reusable string builder for rendering
-	viewBuf strings.Builder
+	viewBuf *strings.Builder
 
 	// Cursor history: remembers selected entry name per directory path
 	cursorHistory      map[string]string
@@ -86,6 +87,7 @@ func NewModel(path string) Model {
 		history:       make([]string, 0),
 		cursorHistory: make(map[string]string),
 		cache:         cache,
+		viewBuf:       &strings.Builder{},
 	}
 }
 
@@ -309,7 +311,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, m.keys.Open):
-			exec.Command("open", m.path).Start()
+			openPath(m.path)
 			return m, nil
 
 		case key.Matches(msg, m.keys.Search):
@@ -471,22 +473,10 @@ func (m *Model) ensureVisible() {
 
 func (m *Model) applyFilter() {
 	search := m.searchInput.Value()
-	m.filtered = FilterEntries(m.entries, m.showHidden, m.dirOnly, search)
+	// Reuse underlying array to reduce GC pressure
+	m.filtered = filterEntriesInto(m.filtered[:0], m.entries, m.showHidden, m.dirOnly, search)
 	if m.topMode && len(m.filtered) > 10 {
 		m.filtered = m.filtered[:10]
-	}
-}
-
-func (m *Model) recalcTotals() {
-	var total int64
-	for _, e := range m.entries {
-		total += e.Size
-	}
-	m.totalSize = total
-	if total > 0 {
-		for i := range m.entries {
-			m.entries[i].Percentage = float64(m.entries[i].Size) / float64(total) * 100
-		}
 	}
 }
 
@@ -544,10 +534,7 @@ func (m Model) navigateIn() (Model, tea.Cmd) {
 	// For files, open with default application
 	if !entry.IsDir {
 		filePath := filepath.Join(m.path, entry.Name)
-		cmd := exec.Command("open", filePath)
-		cmd.Stdout = nil
-		cmd.Stderr = nil
-		cmd.Start()
+		openPath(filePath)
 		return m, nil
 	}
 
@@ -602,10 +589,10 @@ func (m Model) quickLook() (Model, tea.Cmd) {
 	cmd := exec.Command("qlmanage", "-p", targetPath)
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err == nil {
+		defer devNull.Close()
 		cmd.Stdout = devNull
 		cmd.Stderr = devNull
 		cmd.Start()
-		devNull.Close()
 	}
 	return m, nil
 }
@@ -619,4 +606,20 @@ func (m Model) lineCountForSelected() tea.Cmd {
 		return nil
 	}
 	return countLinesCmd(m.path, e.Name)
+}
+
+// openPath opens a file or directory with the OS default handler.
+func openPath(path string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", path)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", path)
+	default: // linux, freebsd, etc.
+		cmd = exec.Command("xdg-open", path)
+	}
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Start()
 }

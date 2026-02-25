@@ -97,10 +97,12 @@ type serializedEntry struct {
 }
 
 type serializedCache struct {
-	Items []serializedEntry
+	Version int
+	Items   []serializedEntry
 }
 
 const (
+	cacheVersion = 1
 	cacheDir     = ".cache/dirgo"
 	cacheFile    = "cache.gob"
 	cacheMaxAge  = 24 * time.Hour
@@ -150,7 +152,7 @@ func (c *lruCache) SaveToDisk() error {
 	}
 	defer f.Close()
 
-	return gob.NewEncoder(f).Encode(serializedCache{Items: items})
+	return gob.NewEncoder(f).Encode(serializedCache{Version: cacheVersion, Items: items})
 }
 
 // LoadFromDisk loads cached scan results from disk, discarding stale entries.
@@ -172,6 +174,11 @@ func (c *lruCache) LoadFromDisk() error {
 	var sc serializedCache
 	if err := gob.NewDecoder(f).Decode(&sc); err != nil {
 		return nil // corrupted cache, just ignore
+	}
+
+	// Skip incompatible cache versions
+	if sc.Version != cacheVersion {
+		return nil
 	}
 
 	now := time.Now()

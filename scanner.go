@@ -172,7 +172,7 @@ func scanDirectory(path string) tea.Cmd {
 		}
 
 		// Stat files — parallel if large directory
-		if len(fileEntries) > 100 {
+		if len(fileEntries) > 50 {
 			results := make([]FileEntry, len(fileEntries))
 			var wg sync.WaitGroup
 			sem := make(chan struct{}, runtime.NumCPU())

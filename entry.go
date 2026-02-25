@@ -29,7 +29,11 @@ func SortBySize(entries []FileEntry) {
 
 // FilterEntries returns a filtered slice based on visibility and directory-only settings.
 func FilterEntries(entries []FileEntry, showHidden, dirOnly bool, search string) []FileEntry {
-	result := make([]FileEntry, 0, len(entries))
+	return filterEntriesInto(make([]FileEntry, 0, len(entries)), entries, showHidden, dirOnly, search)
+}
+
+// filterEntriesInto appends filtered entries into dst, allowing callers to reuse slices.
+func filterEntriesInto(dst []FileEntry, entries []FileEntry, showHidden, dirOnly bool, search string) []FileEntry {
 	for _, e := range entries {
 		if !showHidden && e.IsHidden {
 			continue
@@ -40,37 +44,27 @@ func FilterEntries(entries []FileEntry, showHidden, dirOnly bool, search string)
 		if search != "" && !fuzzyMatch(e.Name, search) {
 			continue
 		}
-		result = append(result, e)
+		dst = append(dst, e)
 	}
-	return result
+	return dst
 }
 
-// fuzzyMatch does a simple case-insensitive substring match.
+// toLower returns the ASCII-lowered byte (only for A-Z).
+func toLower(b byte) byte {
+	if b >= 'A' && b <= 'Z' {
+		return b + 32
+	}
+	return b
+}
+
+// fuzzyMatch performs a case-insensitive subsequence match.
+// E.g. "mgo" matches "model.go", "rdm" matches "README.md".
 func fuzzyMatch(name, pattern string) bool {
-	nl := len(name)
-	pl := len(pattern)
-	if pl > nl {
-		return false
-	}
-	for i := 0; i <= nl-pl; i++ {
-		match := true
-		for j := 0; j < pl; j++ {
-			nc := name[i+j]
-			pc := pattern[j]
-			if nc >= 'A' && nc <= 'Z' {
-				nc += 32
-			}
-			if pc >= 'A' && pc <= 'Z' {
-				pc += 32
-			}
-			if nc != pc {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
+	pi := 0
+	for ni := 0; ni < len(name) && pi < len(pattern); ni++ {
+		if toLower(name[ni]) == toLower(pattern[pi]) {
+			pi++
 		}
 	}
-	return false
+	return pi == len(pattern)
 }

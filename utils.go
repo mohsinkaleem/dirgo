@@ -2,15 +2,15 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
 
 // formatSize converts bytes to a human-readable string.
-func formatSize(bytes int64) string {
+func formatSize(b int64) string {
 	const (
 		KB = 1024
 		MB = 1024 * KB
@@ -18,16 +18,16 @@ func formatSize(bytes int64) string {
 		TB = 1024 * GB
 	)
 	switch {
-	case bytes >= TB:
-		return fmt.Sprintf("%.1f TB", float64(bytes)/float64(TB))
-	case bytes >= GB:
-		return fmt.Sprintf("%.1f GB", float64(bytes)/float64(GB))
-	case bytes >= MB:
-		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(MB))
-	case bytes >= KB:
-		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(KB))
+	case b >= TB:
+		return strconv.FormatFloat(float64(b)/float64(TB), 'f', 1, 64) + " TB"
+	case b >= GB:
+		return strconv.FormatFloat(float64(b)/float64(GB), 'f', 1, 64) + " GB"
+	case b >= MB:
+		return strconv.FormatFloat(float64(b)/float64(MB), 'f', 1, 64) + " MB"
+	case b >= KB:
+		return strconv.FormatFloat(float64(b)/float64(KB), 'f', 1, 64) + " KB"
 	default:
-		return fmt.Sprintf("%d B", bytes)
+		return strconv.FormatInt(b, 10) + " B"
 	}
 }
 
@@ -64,13 +64,13 @@ var bufPool = sync.Pool{
 }
 
 // isBinaryContent checks whether a byte slice looks like binary data.
+// Only checks the first 512 bytes (sufficient for detection, matches HTTP sniffing).
 func isBinaryContent(data []byte) bool {
-	for _, b := range data {
-		if b == 0 {
-			return true
-		}
+	check := data
+	if len(check) > 512 {
+		check = check[:512]
 	}
-	return false
+	return bytes.IndexByte(check, 0) >= 0
 }
 
 // countLines counts newlines using chunked reads + bytes.Count.
@@ -145,7 +145,15 @@ func barString(percentage float64, maxWidth int) string {
 	if filled > maxWidth {
 		filled = maxWidth
 	}
-	return strings.Repeat("█", filled) + strings.Repeat(" ", maxWidth-filled)
+	var b strings.Builder
+	b.Grow(maxWidth*3 + (maxWidth - filled)) // █ is 3 bytes UTF-8
+	for i := 0; i < filled; i++ {
+		b.WriteRune('█')
+	}
+	for i := filled; i < maxWidth; i++ {
+		b.WriteByte(' ')
+	}
+	return b.String()
 }
 
 // padRight pads a string to the given width with spaces.
