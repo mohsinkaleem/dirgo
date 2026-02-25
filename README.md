@@ -9,7 +9,7 @@ A fast, interactive terminal directory analyzer built with Go and [Bubble Tea](h
 - **Efficient directory scanning** — uses `os.ReadDir` + manual recursion to minimize syscalls; parallel stat with bounded concurrency
 - **Smart refresh** — checks directory modtime before rescanning; skips unchanged directories
 - **LRU cache** — bounded in-memory cache (100 entries) with disk persistence across sessions (respects `XDG_CACHE_HOME`)
-- **Line counting** — automatic line count for the selected text file; batch count all with `L`
+- **Line counting** — automatic line count for the selected text file; batch count all with `s`
 - **Fuzzy search** — filter entries in real time with subsequence matching
 - **Symlink detection** — symlinks shown with `→` / `⇢` indicators
 - **Cross-platform** — works on macOS, Linux, and Windows (Quick Look, file open, and cache paths adapt per OS)
@@ -65,7 +65,7 @@ dirgo --profile /path/to/dir
 | `Esc` | Cancel search / close help |
 | `h` | Toggle hidden files |
 | `d` | Toggle directory-only view |
-| `L` | Count lines for all files |
+| `s` | Count lines for all files |
 | `?` | Help |
 | `q` / `Ctrl+C` | Quit |
 

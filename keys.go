@@ -101,8 +101,8 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("esc", "cancel"),
 		),
 		CountAll: key.NewBinding(
-			key.WithKeys("L"),
-			key.WithHelp("L", "count all lines"),
+			key.WithKeys("s"),
+			key.WithHelp("s", "count all lines"),
 		),
 	}
 }

@@ -172,7 +172,7 @@ func renderFooter(m Model) string {
 		{"/", "search"},
 		{"h", "hidden"},
 		{"d", "dirs"},
-		{"L", "lines"},
+		{"s", "lines"},
 		{"?", "help"},
 		{"q", "quit"},
 	}
