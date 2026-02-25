@@ -4,22 +4,25 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all keybindings.
 type KeyMap struct {
-	Up       key.Binding
-	Down     key.Binding
-	Left     key.Binding
-	Right    key.Binding
-	Top      key.Binding
-	Bottom   key.Binding
-	Refresh  key.Binding
-	TopView  key.Binding
-	Open     key.Binding
-	Search   key.Binding
-	Hidden   key.Binding
-	DirOnly  key.Binding
-	Help     key.Binding
-	Quit     key.Binding
-	Escape   key.Binding
-	CountAll key.Binding
+	Up        key.Binding
+	Down      key.Binding
+	Left      key.Binding
+	Right     key.Binding
+	Top       key.Binding
+	Bottom    key.Binding
+	PageUp    key.Binding
+	PageDown  key.Binding
+	QuickLook key.Binding
+	Refresh   key.Binding
+	TopView   key.Binding
+	Open      key.Binding
+	Search    key.Binding
+	Hidden    key.Binding
+	DirOnly   key.Binding
+	Help      key.Binding
+	Quit      key.Binding
+	Escape    key.Binding
+	CountAll  key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings.
@@ -48,6 +51,18 @@ func DefaultKeyMap() KeyMap {
 		Bottom: key.NewBinding(
 			key.WithKeys("G"),
 			key.WithHelp("G", "go to bottom"),
+		),
+		PageUp: key.NewBinding(
+			key.WithKeys("pgup", "ctrl+u"),
+			key.WithHelp("PgUp/^U", "page up"),
+		),
+		PageDown: key.NewBinding(
+			key.WithKeys("pgdown", "ctrl+d"),
+			key.WithHelp("PgDn/^D", "page down"),
+		),
+		QuickLook: key.NewBinding(
+			key.WithKeys(" "),
+			key.WithHelp("space", "quick look"),
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),

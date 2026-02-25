@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -37,6 +38,10 @@ type Model struct {
 	// Reusable string builder for rendering
 	viewBuf strings.Builder
 
+	// Cursor history: remembers selected entry name per directory path
+	cursorHistory      map[string]string
+	pendingCursorEntry string
+
 	// Modes
 	loading    bool
 	showHidden bool
@@ -72,14 +77,15 @@ func NewModel(path string) Model {
 	_ = cache.LoadFromDisk() // best-effort load
 
 	return Model{
-		path:        path,
-		loading:     true,
-		showHidden:  false,
-		keys:        DefaultKeyMap(),
-		spinner:     s,
-		searchInput: ti,
-		history:     make([]string, 0),
-		cache:       cache,
+		path:          path,
+		loading:       true,
+		showHidden:    false,
+		keys:          DefaultKeyMap(),
+		spinner:       s,
+		searchInput:   ti,
+		history:       make([]string, 0),
+		cursorHistory: make(map[string]string),
+		cache:         cache,
 	}
 }
 
@@ -111,82 +117,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.offset = 0
 		m.applyFilter()
 
-		// Trigger line count for the first selected entry
-		if len(m.filtered) > 0 {
-			e := m.filtered[0]
+		// Restore cursor to remembered entry (e.g., when navigating up to parent)
+		if m.pendingCursorEntry != "" {
+			for i, e := range m.filtered {
+				if e.Name == m.pendingCursorEntry {
+					m.cursor = i
+					m.ensureVisible()
+					break
+				}
+			}
+			m.pendingCursorEntry = ""
+		}
+
+		// Trigger line count for the selected entry
+		if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
+			e := m.filtered[m.cursor]
 			if !e.IsDir && !e.IsBinary {
 				cmds = append(cmds, countLinesCmd(m.path, e.Name))
 			}
 		}
 
-		// Phase 2: fire off background size computation for pending dirs
-		for _, dirName := range msg.pendingDirs {
-			cmds = append(cmds, computeDirSizeCmd(msg.path, dirName))
-		}
-
 		return m, tea.Batch(cmds...)
-
-	case dirSizeMsg:
-		// Phase 2: a directory size computation completed
-		if msg.Path != m.path {
-			// We navigated away — update cache only
-			if cached, ok := m.cache.Get(msg.Path); ok {
-				for i := range cached.entries {
-					if cached.entries[i].Name == msg.Name && cached.entries[i].IsDir {
-						cached.entries[i].Size = msg.Size
-						cached.entries[i].ChildFiles = msg.ChildFiles
-						cached.entries[i].ChildDirs = msg.ChildDirs
-						cached.entries[i].SizeComputing = false
-						break
-					}
-				}
-				m.recalcCacheEntry(msg.Path, cached)
-			}
-			return m, nil
-		}
-
-		// Remember selection
-		var selectedName string
-		if m.cursor < len(m.filtered) {
-			selectedName = m.filtered[m.cursor].Name
-		}
-
-		// Update matching entry
-		for i := range m.entries {
-			if m.entries[i].Name == msg.Name && m.entries[i].IsDir {
-				m.entries[i].Size = msg.Size
-				m.entries[i].ChildFiles = msg.ChildFiles
-				m.entries[i].ChildDirs = msg.ChildDirs
-				m.entries[i].SizeComputing = false
-				break
-			}
-		}
-
-		// Recalculate totals and percentages
-		m.recalcTotals()
-		SortBySize(m.entries)
-		m.applyFilter()
-
-		// Update cache
-		m.cache.Put(m.path, scanResultMsg{
-			path:       m.path,
-			entries:    m.entries,
-			totalSize:  m.totalSize,
-			totalFiles: m.totalFiles,
-			totalDirs:  m.totalDirs,
-		})
-
-		// Restore cursor
-		if selectedName != "" {
-			for i, e := range m.filtered {
-				if e.Name == selectedName {
-					m.cursor = i
-					break
-				}
-			}
-		}
-		m.ensureVisible()
-		return m, nil
 
 	case scanUpToDateMsg:
 		// Smart refresh: nothing changed
@@ -321,6 +272,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Right):
 			return m.navigateIn()
 
+		case key.Matches(msg, m.keys.QuickLook):
+			return m.quickLook()
+
+		case key.Matches(msg, m.keys.PageUp):
+			pageSize := m.height - 5
+			if pageSize < 1 {
+				pageSize = 1
+			}
+			m = m.moveCursor(-pageSize)
+			return m, m.lineCountForSelected()
+
+		case key.Matches(msg, m.keys.PageDown):
+			pageSize := m.height - 5
+			if pageSize < 1 {
+				pageSize = 1
+			}
+			m = m.moveCursor(pageSize)
+			return m, m.lineCountForSelected()
+
 		case key.Matches(msg, m.keys.Refresh):
 			// Smart refresh: check modtime before full rescan
 			m.err = nil
@@ -381,28 +351,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// pendingCount returns how many directory entries are still computing their size.
-func (m Model) pendingCount() int {
-	count := 0
-	for _, e := range m.entries {
-		if e.SizeComputing {
-			count++
-		}
-	}
-	return count
-}
-
-// totalDirCount returns how many directory entries exist.
-func (m Model) totalDirCount() int {
-	count := 0
-	for _, e := range m.entries {
-		if e.IsDir {
-			count++
-		}
-	}
-	return count
-}
-
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
@@ -431,16 +379,7 @@ func (m Model) View() string {
 	}
 
 	if m.loading {
-		pending := m.pendingCount()
-		total := m.totalDirCount()
-		spinnerText := " Scanning..."
-		if total > 0 && pending > 0 {
-			done := total - pending
-			spinnerText = lipgloss.NewStyle().Foreground(colorDim).Render(
-				" Scanning " + formatCount(done) + "/" + formatCount(total) + " dirs...",
-			)
-		}
-		spinnerView := m.spinner.View() + spinnerText
+		spinnerView := m.spinner.View() + " Scanning..."
 		padTop := listHeight / 2
 		for i := 0; i < padTop; i++ {
 			m.viewBuf.WriteString("\n")
@@ -551,26 +490,20 @@ func (m *Model) recalcTotals() {
 	}
 }
 
-func (m *Model) recalcCacheEntry(path string, cached scanResultMsg) {
-	var total int64
-	for _, e := range cached.entries {
-		total += e.Size
-	}
-	cached.totalSize = total
-	if total > 0 {
-		for i := range cached.entries {
-			cached.entries[i].Percentage = float64(cached.entries[i].Size) / float64(total) * 100
-		}
-	}
-	SortBySize(cached.entries)
-	m.cache.Put(path, cached)
-}
-
 func (m Model) navigateUp() (Model, tea.Cmd) {
 	parent := filepath.Dir(m.path)
 	if parent == m.path {
 		return m, nil // already at root
 	}
+
+	// Remember which directory we came from so parent highlights it
+	childName := filepath.Base(m.path)
+
+	// Save current cursor position for this directory
+	if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
+		m.cursorHistory[m.path] = m.filtered[m.cursor].Name
+	}
+
 	m.history = append(m.history, m.path)
 	m.path = parent
 	m.err = nil
@@ -586,8 +519,18 @@ func (m Model) navigateUp() (Model, tea.Cmd) {
 		m.cursor = 0
 		m.offset = 0
 		m.applyFilter()
+		// Highlight the directory we navigated up from
+		for i, e := range m.filtered {
+			if e.Name == childName {
+				m.cursor = i
+				m.ensureVisible()
+				break
+			}
+		}
 		return m, m.lineCountForSelected()
 	}
+	// For async scan, remember to restore cursor when results arrive
+	m.pendingCursorEntry = childName
 	m.loading = true
 	return m, tea.Batch(scanDirectory(parent), m.spinner.Tick)
 }
@@ -597,15 +540,30 @@ func (m Model) navigateIn() (Model, tea.Cmd) {
 		return m, nil
 	}
 	entry := m.filtered[m.cursor]
+
+	// For files, open with default application
 	if !entry.IsDir {
+		filePath := filepath.Join(m.path, entry.Name)
+		cmd := exec.Command("open", filePath)
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		cmd.Start()
 		return m, nil
 	}
+
+	// Save current cursor position for this directory
+	m.cursorHistory[m.path] = entry.Name
+
 	target := filepath.Join(m.path, entry.Name)
 	m.history = append(m.history, m.path)
 	m.path = target
 	m.err = nil
 	m.searchInput.SetValue("")
 	m.searchMode = false
+
+	// Check if we have a remembered cursor position for this directory
+	pendingEntry := m.cursorHistory[target]
+
 	if cached, ok := m.cache.Get(target); ok {
 		m.loading = false
 		m.fromCache = true
@@ -616,10 +574,40 @@ func (m Model) navigateIn() (Model, tea.Cmd) {
 		m.cursor = 0
 		m.offset = 0
 		m.applyFilter()
+		// Restore cursor to previously selected entry
+		if pendingEntry != "" {
+			for i, e := range m.filtered {
+				if e.Name == pendingEntry {
+					m.cursor = i
+					m.ensureVisible()
+					break
+				}
+			}
+		}
 		return m, m.lineCountForSelected()
+	}
+	if pendingEntry != "" {
+		m.pendingCursorEntry = pendingEntry
 	}
 	m.loading = true
 	return m, tea.Batch(scanDirectory(target), m.spinner.Tick)
+}
+
+func (m Model) quickLook() (Model, tea.Cmd) {
+	if len(m.filtered) == 0 {
+		return m, nil
+	}
+	entry := m.filtered[m.cursor]
+	targetPath := filepath.Join(m.path, entry.Name)
+	cmd := exec.Command("qlmanage", "-p", targetPath)
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err == nil {
+		cmd.Stdout = devNull
+		cmd.Stderr = devNull
+		cmd.Start()
+		devNull.Close()
+	}
+	return m, nil
 }
 
 func (m Model) lineCountForSelected() tea.Cmd {

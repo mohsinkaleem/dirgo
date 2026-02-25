@@ -13,15 +13,14 @@ import (
 
 // --- Message types ---
 
-// scanResultMsg is sent when Phase 1 (quick directory listing) completes.
+// scanResultMsg is sent when directory scanning completes.
 type scanResultMsg struct {
-	path        string
-	entries     []FileEntry
-	totalSize   int64
-	totalFiles  int
-	totalDirs   int
-	dirModTime  time.Time
-	pendingDirs []string // directory names still needing size computation
+	path       string
+	entries    []FileEntry
+	totalSize  int64
+	totalFiles int
+	totalDirs  int
+	dirModTime time.Time
 }
 
 // scanErrorMsg is sent when a directory scan fails.
@@ -35,15 +34,6 @@ type lineCountMsg struct {
 	lines int
 }
 
-// dirSizeMsg is sent when a background directory size computation finishes (Phase 2).
-type dirSizeMsg struct {
-	Path       string // base directory (parent)
-	Name       string // entry name
-	Size       int64
-	ChildFiles int
-	ChildDirs  int
-}
-
 // batchLineCountMsg is sent when batch "count all" completes.
 type batchLineCountMsg struct {
 	Counts map[string]int // name → lineCount
@@ -54,16 +44,10 @@ type scanUpToDateMsg struct {
 	path string
 }
 
-// --- Concurrency control ---
-
-// scanSem limits concurrent directory walks. Sized to CPU count (capped at 16).
-var scanSem = make(chan struct{}, minInt(runtime.NumCPU(), 16))
-
 // --- Commands ---
 
-// scanDirectory performs Phase 1: instant directory listing.
-// Files are stat'd immediately; directories are marked SizeComputing.
-// Returns scanResultMsg with pendingDirs for Phase 2.
+// scanDirectory performs a full directory listing with sizes computed upfront.
+// Directory sizes are computed in parallel using bounded concurrency.
 func scanDirectory(path string) tea.Cmd {
 	return func() tea.Msg {
 		absPath, err := filepath.Abs(path)
@@ -86,24 +70,22 @@ func scanDirectory(path string) tea.Cmd {
 		entries := make([]FileEntry, 0, len(dirEntries))
 		var totalSize int64
 		var totalFiles, totalDirs int
-		var pendingDirs []string
-
-		// Batched file stats: for dirs with > 100 files, parallelize Info() calls
-		type fileResult struct {
-			entry FileEntry
-		}
 
 		// Separate dirs and files
+		type dirInfo2 struct {
+			index int
+			name  string
+		}
 		var fileEntries []os.DirEntry
+		var dirEntryIndices []dirInfo2
+
 		for _, de := range dirEntries {
 			if de.IsDir() || de.Type()&os.ModeSymlink != 0 {
-				// Handle directory or symlink-to-directory
 				name := de.Name()
 				isHidden := strings.HasPrefix(name, ".")
 				isSymlink := de.Type()&os.ModeSymlink != 0
 				isDir := de.IsDir()
 
-				// For symlinks, check if target is a directory
 				if isSymlink && !isDir {
 					target, err := os.Stat(filepath.Join(absPath, name))
 					if err == nil && target.IsDir() {
@@ -118,21 +100,74 @@ func scanDirectory(path string) tea.Cmd {
 					if err == nil {
 						modTime = info.ModTime()
 					}
+					idx := len(entries)
 					entries = append(entries, FileEntry{
-						Name:          name,
-						IsDir:         true,
-						IsHidden:      isHidden,
-						IsSymlink:     isSymlink,
-						SizeComputing: true,
-						ModTime:       modTime,
+						Name:      name,
+						IsDir:     true,
+						IsHidden:  isHidden,
+						IsSymlink: isSymlink,
+						ModTime:   modTime,
 					})
-					pendingDirs = append(pendingDirs, name)
+					dirEntryIndices = append(dirEntryIndices, dirInfo2{index: idx, name: name})
 				} else {
-					// Symlink to file
 					fileEntries = append(fileEntries, de)
 				}
 			} else {
 				fileEntries = append(fileEntries, de)
+			}
+		}
+
+		// Compute directory sizes in parallel
+		if len(dirEntryIndices) > 0 {
+			type dirResult struct {
+				index      int
+				size       int64
+				childFiles int
+				childDirs  int
+			}
+			results := make([]dirResult, len(dirEntryIndices))
+			var wg sync.WaitGroup
+			sem := make(chan struct{}, minInt(runtime.NumCPU(), 16))
+
+			for ri, di := range dirEntryIndices {
+				wg.Add(1)
+				go func(resultIdx int, info dirInfo2) {
+					defer wg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+
+					dirPath := filepath.Join(absPath, info.name)
+					var size int64
+					var files, dirs int
+					filepath.WalkDir(dirPath, func(_ string, d os.DirEntry, err error) error {
+						if err != nil {
+							return filepath.SkipDir
+						}
+						if d.IsDir() {
+							dirs++
+							return nil
+						}
+						files++
+						fi, err := d.Info()
+						if err == nil {
+							size += fi.Size()
+						}
+						return nil
+					})
+					if dirs > 0 {
+						dirs--
+					}
+					results[resultIdx] = dirResult{index: info.index, size: size, childFiles: files, childDirs: dirs}
+				}(ri, di)
+			}
+			wg.Wait()
+
+			// Apply results back to entries
+			for _, r := range results {
+				entries[r.index].Size = r.size
+				entries[r.index].ChildFiles = r.childFiles
+				entries[r.index].ChildDirs = r.childDirs
+				totalSize += r.size
 			}
 		}
 
@@ -188,7 +223,7 @@ func scanDirectory(path string) tea.Cmd {
 			}
 		}
 
-		// Compute initial percentages (directories are 0 until Phase 2 completes)
+		// Compute final percentages
 		if totalSize > 0 {
 			for i := range entries {
 				entries[i].Percentage = float64(entries[i].Size) / float64(totalSize) * 100
@@ -198,54 +233,12 @@ func scanDirectory(path string) tea.Cmd {
 		SortBySize(entries)
 
 		return scanResultMsg{
-			path:        absPath,
-			entries:     entries,
-			totalSize:   totalSize,
-			totalFiles:  totalFiles,
-			totalDirs:   totalDirs,
-			dirModTime:  dirModTime,
-			pendingDirs: pendingDirs,
-		}
-	}
-}
-
-// computeDirSizeCmd returns a tea.Cmd that computes the total size of a single
-// subdirectory. It acquires a slot from the global semaphore to bound concurrency.
-func computeDirSizeCmd(basePath, name string) tea.Cmd {
-	return func() tea.Msg {
-		scanSem <- struct{}{}
-		defer func() { <-scanSem }()
-
-		dirPath := filepath.Join(basePath, name)
-		var size int64
-		var files, dirs int
-
-		filepath.WalkDir(dirPath, func(_ string, d os.DirEntry, err error) error {
-			if err != nil {
-				return filepath.SkipDir
-			}
-			if d.IsDir() {
-				dirs++
-				return nil
-			}
-			files++
-			info, err := d.Info()
-			if err == nil {
-				size += info.Size()
-			}
-			return nil
-		})
-		// dirs includes the root dir itself
-		if dirs > 0 {
-			dirs--
-		}
-
-		return dirSizeMsg{
-			Path:       basePath,
-			Name:       name,
-			Size:       size,
-			ChildFiles: files,
-			ChildDirs:  dirs,
+			path:       absPath,
+			entries:    entries,
+			totalSize:  totalSize,
+			totalFiles: totalFiles,
+			totalDirs:  totalDirs,
+			dirModTime: dirModTime,
 		}
 	}
 }

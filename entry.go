@@ -7,18 +7,17 @@ import (
 
 // FileEntry represents a file or directory with its metadata.
 type FileEntry struct {
-	Name          string
-	Size          int64
-	IsDir         bool
-	IsHidden      bool
-	IsBinary      bool
-	IsSymlink     bool
-	LineCount     int // 0 if unknown/binary/dir
-	Percentage    float64
-	ChildFiles    int // only for dirs
-	ChildDirs     int // only for dirs
-	ModTime       time.Time
-	SizeComputing bool // true while background size computation is in progress
+	Name       string
+	Size       int64
+	IsDir      bool
+	IsHidden   bool
+	IsBinary   bool
+	IsSymlink  bool
+	LineCount  int // 0 if unknown/binary/dir
+	Percentage float64
+	ChildFiles int // only for dirs
+	ChildDirs  int // only for dirs
+	ModTime    time.Time
 }
 
 // SortBySize sorts entries by size descending.

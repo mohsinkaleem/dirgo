@@ -17,17 +17,6 @@ func renderHeader(m Model) string {
 
 	line := path + div + total + div + files + div + dirs
 
-	// Scan progress indicator
-	pending := m.pendingCount()
-	if pending > 0 {
-		totalDirs := m.totalDirCount()
-		done := totalDirs - pending
-		progress := lipgloss.NewStyle().Foreground(colorYellow).Render(
-			fmt.Sprintf("⏳ %d/%d", done, totalDirs),
-		)
-		line += div + progress
-	}
-
 	if m.topMode {
 		line += div + lipgloss.NewStyle().Foreground(colorYellow).Bold(true).Render("TOP 10")
 	}
@@ -120,13 +109,7 @@ func renderRow(m Model, index int, entry FileEntry, selected bool) string {
 	name := truncateStr(entry.Name, nameMaxWidth)
 	name = padRight(name, nameMaxWidth)
 
-	// Size — show ⏳ prefix while computing
-	var szStr string
-	if entry.SizeComputing {
-		szStr = padLeft("⏳ …", 9)
-	} else {
-		szStr = padLeft(formatSize(entry.Size), 9)
-	}
+	szStr := padLeft(formatSize(entry.Size), 9)
 
 	// Assemble — apply selection background to each segment individually
 	// so inner ANSI resets don't clobber the row background.
@@ -173,7 +156,8 @@ func renderFooter(m Model) string {
 	}{
 		{"↑↓", "nav"},
 		{"←", "back"},
-		{"→", "open"},
+		{"→⏎", "open"},
+		{"␣", "qlook"},
 		{"r", "refresh"},
 		{"t", "top10"},
 		{"o", "finder"},
@@ -201,8 +185,11 @@ func renderHelp(m Model) string {
 	}{
 		{"↑ / k", "Move cursor up"},
 		{"↓ / j", "Move cursor down"},
-		{"← / BS", "Go to parent directory"},
-		{"→ / l / Enter", "Open selected directory"},
+		{"PgUp / ^U", "Page up"},
+		{"PgDn / ^D", "Page down"},
+		{"← / BS", "Go to parent (remembers position)"},
+		{"→ / l / Enter", "Open dir / open file with default app"},
+		{"Space", "Quick Look preview (macOS)"},
 		{"g", "Jump to top of list"},
 		{"G", "Jump to bottom of list"},
 		{"r", "Refresh (smart — skips if unchanged)"},
