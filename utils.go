@@ -60,7 +60,7 @@ func truncateStr(s string, max int) string {
 
 // bufPool reuses read buffers for line counting to avoid per-call allocations.
 var bufPool = sync.Pool{
-	New: func() interface{} { return make([]byte, 32*1024) },
+	New: func() interface{} { return make([]byte, 64*1024) },
 }
 
 // isBinaryContent checks whether a byte slice looks like binary data.

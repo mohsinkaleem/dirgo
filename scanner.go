@@ -76,8 +76,8 @@ func scanDirectory(path string) tea.Cmd {
 			index int
 			name  string
 		}
-		var fileEntries []os.DirEntry
-		var dirEntryIndices []dirInfo2
+		fileEntries := make([]os.DirEntry, 0, len(dirEntries))
+		dirEntryIndices := make([]dirInfo2, 0, len(dirEntries)/4+1)
 
 		for _, de := range dirEntries {
 			if de.IsDir() || de.Type()&os.ModeSymlink != 0 {
@@ -137,26 +137,9 @@ func scanDirectory(path string) tea.Cmd {
 					defer func() { <-sem }()
 
 					dirPath := filepath.Join(absPath, info.name)
-					var size int64
-					var files, dirs int
-					filepath.WalkDir(dirPath, func(_ string, d os.DirEntry, err error) error {
-						if err != nil {
-							return filepath.SkipDir
-						}
-						if d.IsDir() {
-							dirs++
-							return nil
-						}
-						files++
-						fi, err := d.Info()
-						if err == nil {
-							size += fi.Size()
-						}
-						return nil
-					})
-					if dirs > 0 {
-						dirs--
-					}
+					// Use os.ReadDir + manual recursion instead of filepath.WalkDir
+					// to reduce syscall overhead (one getdirentries per dir vs Lstat per entry)
+					size, files, dirs := dirSizeRecursive(dirPath)
 					results[resultIdx] = dirResult{index: info.index, size: size, childFiles: files, childDirs: dirs}
 				}(ri, di)
 			}
@@ -172,7 +155,7 @@ func scanDirectory(path string) tea.Cmd {
 		}
 
 		// Stat files — parallel if large directory
-		if len(fileEntries) > 50 {
+		if len(fileEntries) > 20 {
 			results := make([]FileEntry, len(fileEntries))
 			var wg sync.WaitGroup
 			sem := make(chan struct{}, runtime.NumCPU())
@@ -297,4 +280,30 @@ func countAllLinesCmd(entries []FileEntry, dir string) tea.Cmd {
 
 		return batchLineCountMsg{Counts: counts}
 	}
+}
+
+// dirSizeRecursive computes the total size, file count, and subdirectory count
+// of a directory using os.ReadDir + manual recursion. This is more efficient than
+// filepath.WalkDir because os.ReadDir uses a single getdirentries syscall per
+// directory, and we only call Info() on files (not dirs) since we only need file sizes.
+func dirSizeRecursive(path string) (size int64, files int, dirs int) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return 0, 0, 0
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs++
+			s, f, d := dirSizeRecursive(filepath.Join(path, e.Name()))
+			size += s
+			files += f
+			dirs += d
+		} else {
+			files++
+			if info, err := e.Info(); err == nil {
+				size += info.Size()
+			}
+		}
+	}
+	return size, files, dirs
 }

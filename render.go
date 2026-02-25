@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -45,11 +46,11 @@ func styledSeg(text string, base lipgloss.Style, selected bool) string {
 func formatCount(n int) string {
 	switch {
 	case n >= 1_000_000:
-		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+		return strconv.FormatFloat(float64(n)/1_000_000, 'f', 1, 64) + "M"
 	case n >= 1_000:
-		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+		return strconv.FormatFloat(float64(n)/1_000, 'f', 1, 64) + "k"
 	default:
-		return fmt.Sprintf("%d", n)
+		return strconv.Itoa(n)
 	}
 }
 
@@ -64,7 +65,7 @@ func renderRow(m Model, index int, entry FileEntry, selected bool) string {
 	const metaWidth = 6
 	rawMeta := ""
 	if !entry.IsDir && entry.LineCount > 0 {
-		rawMeta = fmt.Sprintf("%s l", formatCount(entry.LineCount))
+		rawMeta = formatCount(entry.LineCount) + " l"
 	}
 	rawMeta = padLeft(truncateStr(rawMeta, metaWidth), metaWidth)
 
@@ -88,14 +89,14 @@ func renderRow(m Model, index int, entry FileEntry, selected bool) string {
 	}
 
 	// Row number
-	numStr := padLeft(fmt.Sprintf("%d.", index+1), 4)
+	numStr := padLeft(strconv.Itoa(index+1)+".", 4)
 
 	// Bar
 	bc := barColor(entry.Percentage)
 	barStr := barString(entry.Percentage, barMaxWidth)
 
-	// Percentage
-	pctStr := fmt.Sprintf("%5.1f%%", entry.Percentage)
+	// Percentage — use strconv to avoid fmt.Sprintf allocation
+	pctStr := padLeft(strconv.FormatFloat(entry.Percentage, 'f', 1, 64)+"%%", 6)
 
 	// Icon: directory ▸, symlink →, file space
 	iconChar := "  "
@@ -121,23 +122,22 @@ func renderRow(m Model, index int, entry FileEntry, selected bool) string {
 		nameSt = rowNameStyle
 	}
 
-	// Dynamic bar color style — we cache common colors but must handle per-row color
-	barSt := lipgloss.NewStyle().Foreground(bc)
+	// Use pre-defined bar color style to avoid per-row allocation
+	barSt := barStyles[bc]
 
 	// Assemble — apply selection background to each segment individually
 	// so inner ANSI resets don't clobber the row background.
+	// Use string concatenation instead of fmt.Sprintf to reduce allocations.
 
-	parts := fmt.Sprintf("%s%s %s %s %s %s%s %s %s",
-		styledSeg(pointer, pointerSt, false), // pointer has its own highlight
-		styledSeg(numStr, rowDimStyle, selected),
-		styledSeg(barStr, barSt, selected),
-		styledSeg(pctStr, rowPctStyle, selected),
-		styledSeg("│", rowSepStyle, selected),
-		styledSeg(iconChar, rowIconStyle, selected),
-		styledSeg(name, nameSt, selected),
-		styledSeg(szStr, rowDimStyle, selected),
-		styledSeg(rawMeta, rowMetaStyle, selected),
-	)
+	parts := styledSeg(pointer, pointerSt, false) +
+		styledSeg(numStr, rowDimStyle, selected) + " " +
+		styledSeg(barStr, barSt, selected) + " " +
+		styledSeg(pctStr, rowPctStyle, selected) + " " +
+		styledSeg("│", rowSepStyle, selected) + " " +
+		styledSeg(iconChar, rowIconStyle, selected) +
+		styledSeg(name, nameSt, selected) + " " +
+		styledSeg(szStr, rowDimStyle, selected) + " " +
+		styledSeg(rawMeta, rowMetaStyle, selected)
 
 	// Pad row to full width and apply selection background to fill.
 	visualW := lipgloss.Width(parts)
@@ -177,12 +177,18 @@ func renderFooter(m Model) string {
 		{"q", "quit"},
 	}
 
-	parts := make([]string, len(keys))
+	// Use strings.Builder instead of slice+Join to reduce allocations
+	var b strings.Builder
 	for i, k := range keys {
-		parts[i] = footerKeyStyle.Render(k.key) + " " + footerDescStyle.Render(k.desc)
+		if i > 0 {
+			b.WriteString("  ")
+		}
+		b.WriteString(footerKeyStyle.Render(k.key))
+		b.WriteString(" ")
+		b.WriteString(footerDescStyle.Render(k.desc))
 	}
 
-	return footerStyle.Width(m.width).Render(strings.Join(parts, "  "))
+	return footerStyle.Width(m.width).Render(b.String())
 }
 
 // renderHelp renders the help overlay.

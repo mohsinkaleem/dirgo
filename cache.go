@@ -110,6 +110,10 @@ const (
 )
 
 func cacheFilePath() string {
+	// Respect XDG_CACHE_HOME on Linux/Unix
+	if dir := os.Getenv("XDG_CACHE_HOME"); dir != "" {
+		return filepath.Join(dir, "dirgo", cacheFile)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""

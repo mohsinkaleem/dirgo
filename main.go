@@ -10,9 +10,18 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// version is set at build time via -ldflags.
+var version = "dev"
+
 func main() {
 	profileFlag := flag.Bool("profile", false, "enable CPU profiling (writes cpu.prof)")
+	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("dirgo %s\n", version)
+		return
+	}
 
 	if *profileFlag {
 		f, err := os.Create("cpu.prof")

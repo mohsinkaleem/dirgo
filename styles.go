@@ -124,6 +124,15 @@ var (
 				Bold(true)
 )
 
+// Pre-defined bar color styles to avoid per-row allocation in renderRow.
+var barStyles = map[lipgloss.Color]lipgloss.Style{
+	colorRed:    lipgloss.NewStyle().Foreground(colorRed),
+	colorOrange: lipgloss.NewStyle().Foreground(colorOrange),
+	colorYellow: lipgloss.NewStyle().Foreground(colorYellow),
+	colorGreen:  lipgloss.NewStyle().Foreground(colorGreen),
+	colorDim:    lipgloss.NewStyle().Foreground(colorDim),
+}
+
 // barColor returns a color based on the percentage.
 func barColor(pct float64) lipgloss.Color {
 	switch {

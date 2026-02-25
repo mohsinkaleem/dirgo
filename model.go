@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,6 +39,10 @@ type Model struct {
 
 	// Reusable string builder for rendering
 	viewBuf *strings.Builder
+
+	// Cached separator string (rebuilt only when width changes)
+	cachedSep      string
+	cachedSepWidth int
 
 	// Cursor history: remembers selected entry name per directory path
 	cursorHistory      map[string]string
@@ -369,9 +374,12 @@ func (m Model) View() string {
 	m.viewBuf.WriteString(renderHeader(m))
 	m.viewBuf.WriteString("\n")
 
-	// Separator
-	sep := lipgloss.NewStyle().Foreground(colorDimmer).Width(m.width).Render(strings.Repeat("─", m.width))
-	m.viewBuf.WriteString(sep)
+	// Separator (cached, rebuilt only when width changes)
+	if m.cachedSepWidth != m.width {
+		m.cachedSep = lipgloss.NewStyle().Foreground(colorDimmer).Width(m.width).Render(strings.Repeat("─", m.width))
+		m.cachedSepWidth = m.width
+	}
+	m.viewBuf.WriteString(m.cachedSep)
 	m.viewBuf.WriteString("\n")
 
 	// Reserved: header (1) + sep (1) + footer sep (1) + footer (1) + padding (1) = 5
@@ -432,7 +440,7 @@ func (m Model) View() string {
 	}
 
 	// Footer separator
-	m.viewBuf.WriteString(sep)
+	m.viewBuf.WriteString(m.cachedSep)
 	m.viewBuf.WriteString("\n")
 
 	// Footer
@@ -480,6 +488,22 @@ func (m *Model) applyFilter() {
 	}
 }
 
+// maxCursorHistory caps the cursorHistory map to prevent unbounded growth.
+const maxCursorHistory = 500
+
+// rememberCursor saves the current cursor position for a directory path,
+// evicting a random entry if the map exceeds maxCursorHistory.
+func (m *Model) rememberCursor(path, name string) {
+	if len(m.cursorHistory) >= maxCursorHistory {
+		// Evict one arbitrary entry (Go map iteration is random)
+		for k := range m.cursorHistory {
+			delete(m.cursorHistory, k)
+			break
+		}
+	}
+	m.cursorHistory[path] = name
+}
+
 func (m Model) navigateUp() (Model, tea.Cmd) {
 	parent := filepath.Dir(m.path)
 	if parent == m.path {
@@ -491,7 +515,7 @@ func (m Model) navigateUp() (Model, tea.Cmd) {
 
 	// Save current cursor position for this directory
 	if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
-		m.cursorHistory[m.path] = m.filtered[m.cursor].Name
+		m.rememberCursor(m.path, m.filtered[m.cursor].Name)
 	}
 
 	m.history = append(m.history, m.path)
@@ -539,7 +563,7 @@ func (m Model) navigateIn() (Model, tea.Cmd) {
 	}
 
 	// Save current cursor position for this directory
-	m.cursorHistory[m.path] = entry.Name
+	m.rememberCursor(m.path, entry.Name)
 
 	target := filepath.Join(m.path, entry.Name)
 	m.history = append(m.history, m.path)
@@ -586,13 +610,35 @@ func (m Model) quickLook() (Model, tea.Cmd) {
 	}
 	entry := m.filtered[m.cursor]
 	targetPath := filepath.Join(m.path, entry.Name)
-	cmd := exec.Command("qlmanage", "-p", targetPath)
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("qlmanage", "-p", targetPath)
+	case "linux":
+		// Try common previewers in order of preference
+		for _, opener := range []string{"xdg-open", "gnome-open", "less"} {
+			if _, err := exec.LookPath(opener); err == nil {
+				cmd = exec.Command(opener, targetPath)
+				break
+			}
+		}
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", targetPath)
+	}
+
+	if cmd == nil {
+		return m, nil
+	}
+
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err == nil {
 		defer devNull.Close()
 		cmd.Stdout = devNull
 		cmd.Stderr = devNull
-		cmd.Start()
+		if err := cmd.Start(); err != nil {
+			m.err = fmt.Errorf("Quick Look failed: %w", err)
+		}
 	}
 	return m, nil
 }
@@ -617,7 +663,16 @@ func openPath(path string) {
 	case "windows":
 		cmd = exec.Command("cmd", "/c", "start", "", path)
 	default: // linux, freebsd, etc.
-		cmd = exec.Command("xdg-open", path)
+		// Try openers in order; some minimal Linux installs lack xdg-open
+		for _, opener := range []string{"xdg-open", "sensible-open", "gnome-open"} {
+			if _, err := exec.LookPath(opener); err == nil {
+				cmd = exec.Command(opener, path)
+				break
+			}
+		}
+		if cmd == nil {
+			return // No opener available
+		}
 	}
 	cmd.Stdout = nil
 	cmd.Stderr = nil
