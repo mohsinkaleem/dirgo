@@ -147,7 +147,7 @@ func renderRow(m Model, index int, entry FileEntry, selected bool) string {
 	barStr := barString(entry.Percentage, barMaxWidth)
 
 	// Percentage — use strconv to avoid fmt.Sprintf allocation
-	pctStr := padLeft(strconv.FormatFloat(entry.Percentage, 'f', 1, 64)+"%%", 6)
+	pctStr := padLeft(strconv.FormatFloat(entry.Percentage, 'f', 1, 64)+"%", 6)
 
 	// Icon: directory ▸, symlink →, file space
 	iconChar := "  "
@@ -231,6 +231,7 @@ func renderFooter(m Model) string {
 		{"f", "filter"},
 		{"d", "trash"},
 		{"s", "lines"},
+		{"x", "hex"},
 		{"?", "help"},
 		{"q", "quit"},
 	}
@@ -276,6 +277,7 @@ func renderHelp(m Model) string {
 		{"f", "Cycle filter: all → dirs → files"},
 		{"d", "Move selected entry to Trash"},
 		{"s", "Count lines for all files"},
+		{"x", "Hex dump file (xxd/hexdump + pager)"},
 		{"?", "Show this help"},
 		{"q / Ctrl+C", "Quit"},
 	}

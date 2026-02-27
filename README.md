@@ -2,6 +2,8 @@
 
 A fast, interactive terminal directory analyzer built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea). Visualize disk usage, explore directories, and identify space hogs — all from your terminal.
 
+![dirgo screenshot](https://raw.githubusercontent.com/mohsinkaleem/dirgo/main/.github/screenshot.png)
+
 ## Features
 
 - **Instant directory listing** — files appear immediately; directory sizes compute in the background
@@ -10,23 +12,34 @@ A fast, interactive terminal directory analyzer built with Go and [Bubble Tea](h
 - **Smart refresh** — checks directory modtime before rescanning; skips unchanged directories
 - **LRU cache** — bounded in-memory cache (100 entries) with disk persistence across sessions (respects `XDG_CACHE_HOME`)
 - **Line counting** — automatic line count for the selected text file; batch count all with `s`
+- **Hex view** — built-in hex dump for binary files (`xxd` on macOS, `hexdump` fallback on Linux)
+- **Large file protection** — prevents accidentally opening very large blob files
 - **Fuzzy search** — filter entries in real time with subsequence matching
 - **Symlink detection** — symlinks shown with `→` / `⇢` indicators
+- **Move to trash** — safely delete files/directories with `d`
 - **Cross-platform** — works on macOS, Linux, and Windows (Quick Look, file open, and cache paths adapt per OS)
 - **CPU profiling** — built-in `--profile` flag for performance analysis
 
 ## Install
 
+### Go install
+
 ```bash
-go install github.com/m0k099s/dirgo@latest
+go install github.com/mohsinkaleem/dirgo@latest
 ```
 
-Or build from source:
+### From source
 
 ```bash
-git clone https://github.com/m0k099s/dirgo.git
+git clone https://github.com/mohsinkaleem/dirgo.git
 cd dirgo
 make build
+```
+
+### Homebrew (coming soon)
+
+```bash
+brew install mohsinkaleem/tap/dirgo
 ```
 
 ## Usage
@@ -64,8 +77,11 @@ dirgo --profile /path/to/dir
 | `/` | Search / filter |
 | `Esc` | Cancel search / close help |
 | `h` | Toggle hidden files |
-| `d` | Toggle directory-only view |
+| `f` | Cycle filter (all → dirs only → files only) |
 | `s` | Count lines for all files |
+| `c` | cd to path |
+| `x` | Hex view (binary files) |
+| `d` | Move to trash |
 | `?` | Help |
 | `q` / `Ctrl+C` | Quit |
 
@@ -117,39 +133,21 @@ make profile-mem
 make release
 ```
 
-### Benchmark Results (Apple M4 Pro)
-
-| Benchmark | Time | Allocs | Bytes/op |
-|---|---|---|---|
-| ScanDirectory (100 files, 10 subdirs) | ~1.2 ms | 1,159 | 138 KB |
-| ScanDeepDir (5 levels) | ~800 µs | 343 | 40 KB |
-| CountLines (1 MB text) | ~103 µs | 6 | 535 B |
-| FormatSize | ~30 ns | 1 | 8 B |
-| BarString | ~66 ns | 1 | 80 B |
-| FuzzyMatch | ~18 ns | 0 | 0 B |
-| RenderRow | ~11 µs | 99 | 2.4 KB |
-| RenderHeader | ~9 µs | 78 | 3.4 KB |
-| ApplyFilter (10k entries) | ~35 µs | 0 | 0 B |
-| Full View (40 visible rows) | ~465 µs | 3,971 | 152 KB |
-
-### Cross-Platform Binaries
-
-```bash
-make VERSION=v1.0.0 release
-```
-
-| Target | Binary Size |
-|---|---|
-| darwin/arm64 | ~3.9 MB |
-| darwin/amd64 | ~4.1 MB |
-| linux/amd64 | ~4.1 MB |
-| windows/amd64 | ~4.3 MB |
-
 ## Requirements
 
 - Go 1.21+
 - macOS / Linux / Windows
 
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
 ## License
 
-MIT
+[MIT](LICENSE)

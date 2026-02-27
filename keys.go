@@ -25,6 +25,7 @@ type KeyMap struct {
 	CountAll  key.Binding
 	GoTo      key.Binding
 	Delete    key.Binding
+	HexView   key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings.
@@ -113,6 +114,10 @@ func DefaultKeyMap() KeyMap {
 		GoTo: key.NewBinding(
 			key.WithKeys("c"),
 			key.WithHelp("c", "cd to path"),
+		),
+		HexView: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "hex view (binary)"),
 		),
 	}
 }

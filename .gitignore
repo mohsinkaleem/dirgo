@@ -1,17 +1,35 @@
+# Binary
 dirgo
+dirgo.exe
+
+# Build output
 bin/
-.vscode
-*_test.go
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# Temp & logs
 *.log
 *.out
 *.tmp
 *.cache
 *.bak
-*.DS_Store
-*.env
-coverage/
-build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
 vendor/
+coverage/
+
+# Profiling
 *.prof
 *.test
-*.exe
+
+# Env
+*.env
+.github/

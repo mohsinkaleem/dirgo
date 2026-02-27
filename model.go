@@ -489,6 +489,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Batch count lines for all visible entries
 			return m, countAllLinesCmd(m.filtered, m.path)
 
+		case key.Matches(msg, m.keys.HexView):
+			return m.hexView()
+
 		case key.Matches(msg, m.keys.Help):
 			m.helpMode = true
 			return m, nil
@@ -710,6 +713,12 @@ func (m Model) navigateIn() (Model, tea.Cmd) {
 
 	// For files, open with default application
 	if !entry.IsDir {
+		// Block opening very large binary files to avoid freezing the system
+		const maxOpenSize = 100 * 1024 * 1024 // 100 MB
+		if entry.IsBinary && entry.Size > maxOpenSize {
+			m.err = fmt.Errorf("file too large to open (%s) — use 'x' for hex view", formatSize(entry.Size))
+			return m, nil
+		}
 		filePath := filepath.Join(m.path, entry.Name)
 		openPath(filePath)
 		return m, nil
@@ -862,6 +871,56 @@ func (m Model) quickLook() (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// maxHexViewSize is the maximum file size (50 MB) for hex view to prevent
+// loading extremely large files into the pager.
+const maxHexViewSize = 50 * 1024 * 1024
+
+func (m Model) hexView() (Model, tea.Cmd) {
+	if len(m.filtered) == 0 {
+		return m, nil
+	}
+	entry := m.filtered[m.cursor]
+	if entry.IsDir {
+		return m, nil
+	}
+	if entry.Size > maxHexViewSize {
+		m.err = fmt.Errorf("file too large for hex view (%s, max %s)", formatSize(entry.Size), formatSize(maxHexViewSize))
+		return m, nil
+	}
+
+	targetPath := filepath.Join(m.path, entry.Name)
+
+	// Find hex dump tool
+	var hexCmd string
+	for _, tool := range []string{"xxd", "hexdump"} {
+		if _, err := exec.LookPath(tool); err == nil {
+			hexCmd = tool
+			break
+		}
+	}
+	if hexCmd == "" {
+		m.err = fmt.Errorf("no hex viewer found (install xxd or hexdump)")
+		return m, nil
+	}
+
+	// Find pager
+	pager := "less"
+	if p := os.Getenv("PAGER"); p != "" {
+		pager = p
+	}
+
+	// Use shell pipe: xxd file | less
+	shellCmd := fmt.Sprintf("%s %q | %s", hexCmd, targetPath, pager)
+	c := exec.Command("sh", "-c", shellCmd)
+
+	return m, tea.ExecProcess(c, func(err error) tea.Msg {
+		if err != nil {
+			return scanErrorMsg{err: fmt.Errorf("hex view failed: %w", err)}
+		}
+		return nil
+	})
 }
 
 func (m Model) lineCountForSelected() tea.Cmd {

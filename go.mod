@@ -1,4 +1,4 @@
-module github.com/m0k099s/dirgo
+module github.com/mohsinkaleem/dirgo
 
 go 1.25.0
 
