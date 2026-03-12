@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -861,14 +863,12 @@ func (m Model) quickLook() (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if err == nil {
-		defer devNull.Close()
-		cmd.Stdout = devNull
-		cmd.Stderr = devNull
-		if err := cmd.Start(); err != nil {
-			m.err = fmt.Errorf("Quick Look failed: %w", err)
-		}
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		m.err = fmt.Errorf("Quick Look failed: %w", err)
+	} else {
+		go cmd.Wait() // reap child process to avoid zombies
 	}
 	return m, nil
 }
@@ -892,28 +892,34 @@ func (m Model) hexView() (Model, tea.Cmd) {
 
 	targetPath := filepath.Join(m.path, entry.Name)
 
-	// Find hex dump tool
-	var hexCmd string
-	for _, tool := range []string{"xxd", "hexdump"} {
-		if _, err := exec.LookPath(tool); err == nil {
-			hexCmd = tool
-			break
+	var c *exec.Cmd
+	if runtime.GOOS == "windows" {
+		// Windows: use PowerShell's Format-Hex
+		c = exec.Command("powershell", "-Command", fmt.Sprintf("Format-Hex -Path '%s' | more", targetPath))
+	} else {
+		// Find hex dump tool
+		var hexCmd string
+		for _, tool := range []string{"xxd", "hexdump"} {
+			if _, err := exec.LookPath(tool); err == nil {
+				hexCmd = tool
+				break
+			}
 		}
-	}
-	if hexCmd == "" {
-		m.err = fmt.Errorf("no hex viewer found (install xxd or hexdump)")
-		return m, nil
-	}
+		if hexCmd == "" {
+			m.err = fmt.Errorf("no hex viewer found (install xxd or hexdump)")
+			return m, nil
+		}
 
-	// Find pager
-	pager := "less"
-	if p := os.Getenv("PAGER"); p != "" {
-		pager = p
-	}
+		// Find pager
+		pager := "less"
+		if p := os.Getenv("PAGER"); p != "" {
+			pager = p
+		}
 
-	// Use shell pipe: xxd file | less
-	shellCmd := fmt.Sprintf("%s %q | %s", hexCmd, targetPath, pager)
-	c := exec.Command("sh", "-c", shellCmd)
+		// Use shell pipe: xxd file | less
+		shellCmd := fmt.Sprintf("%s %q | %s", hexCmd, targetPath, pager)
+		c = exec.Command("sh", "-c", shellCmd)
+	}
 
 	return m, tea.ExecProcess(c, func(err error) tea.Msg {
 		if err != nil {
@@ -984,20 +990,182 @@ func trashCmd(path, name string, size int64, isDir bool) tea.Cmd {
 			if e != nil {
 				err = fmt.Errorf("trash failed: %s", strings.TrimSpace(string(out)))
 			}
+		case "linux":
+			err = trashLinux(path)
+		case "windows":
+			err = trashWindows(path)
 		default:
-			// Generic fallback: move to ~/.Trash
-			home, herr := os.UserHomeDir()
-			if herr != nil {
-				err = fmt.Errorf("trash: cannot find home dir: %w", herr)
-				break
-			}
-			dest := filepath.Join(home, ".Trash", filepath.Base(path))
-			// Avoid overwriting existing items in Trash
-			if _, statErr := os.Stat(dest); statErr == nil {
-				dest = dest + ".1"
-			}
-			err = os.Rename(path, dest)
+			err = fmt.Errorf("trash not supported on %s", runtime.GOOS)
 		}
 		return trashResultMsg{err: err, name: name, size: size, isDir: isDir}
 	}
+}
+
+// trashLinux moves a file to trash following the XDG Trash specification.
+// Tries desktop-native commands first, then falls back to manual XDG implementation.
+func trashLinux(path string) error {
+	// Try gio trash (GNOME/GTK desktops)
+	if gioPath, err := exec.LookPath("gio"); err == nil {
+		if out, err := exec.Command(gioPath, "trash", path).CombinedOutput(); err == nil {
+			return nil
+		} else {
+			_ = out // gio failed, try next
+		}
+	}
+
+	// Try trash-put (trash-cli package)
+	if trashPut, err := exec.LookPath("trash-put"); err == nil {
+		if out, err := exec.Command(trashPut, path).CombinedOutput(); err == nil {
+			return nil
+		} else {
+			_ = out // trash-put failed, try next
+		}
+	}
+
+	// Manual XDG Trash spec fallback: ~/.local/share/Trash/{files,info}
+	trashDir := os.Getenv("XDG_DATA_HOME")
+	if trashDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("trash: cannot find home dir: %w", err)
+		}
+		trashDir = filepath.Join(home, ".local", "share")
+	}
+	trashDir = filepath.Join(trashDir, "Trash")
+
+	filesDir := filepath.Join(trashDir, "files")
+	infoDir := filepath.Join(trashDir, "info")
+	if err := os.MkdirAll(filesDir, 0o700); err != nil {
+		return fmt.Errorf("trash: cannot create trash dir: %w", err)
+	}
+	if err := os.MkdirAll(infoDir, 0o700); err != nil {
+		return fmt.Errorf("trash: cannot create trash info dir: %w", err)
+	}
+
+	baseName := filepath.Base(path)
+	dest := filepath.Join(filesDir, baseName)
+	infoFile := filepath.Join(infoDir, baseName+".trashinfo")
+
+	// Handle name collisions with incrementing suffix
+	for i := 1; ; i++ {
+		if _, err := os.Stat(dest); os.IsNotExist(err) {
+			break
+		}
+		dest = filepath.Join(filesDir, fmt.Sprintf("%s.%d", baseName, i))
+		infoFile = filepath.Join(infoDir, fmt.Sprintf("%s.%d.trashinfo", baseName, i))
+		if i > 1000 {
+			return fmt.Errorf("trash: too many collisions for %s", baseName)
+		}
+	}
+
+	// Write .trashinfo file (XDG spec)
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path
+	}
+	trashInfo := fmt.Sprintf("[Trash Info]\nPath=%s\nDeletionDate=%s\n",
+		absPath, time.Now().Format("2006-01-02T15:04:05"))
+	if err := os.WriteFile(infoFile, []byte(trashInfo), 0o600); err != nil {
+		return fmt.Errorf("trash: cannot write info file: %w", err)
+	}
+
+	// Move file to trash; os.Rename fails across filesystems, so fall back to copy+delete
+	if err := os.Rename(path, dest); err != nil {
+		// Cross-device fallback: copy then remove original
+		if cpErr := copyPath(path, dest); cpErr != nil {
+			os.Remove(infoFile) // clean up info file
+			return fmt.Errorf("trash: move failed: %w", cpErr)
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("trash: copied but failed to remove original: %w", err)
+		}
+	}
+	return nil
+}
+
+// trashWindows moves a file to the recycle bin using PowerShell.
+func trashWindows(path string) error {
+	// Use the .NET Shell API via PowerShell to move to recycle bin
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("trash: cannot resolve path: %w", err)
+	}
+	script := fmt.Sprintf(
+		`Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('%s', 'OnlyErrorDialogs', 'SendToRecycleBin')`,
+		strings.ReplaceAll(absPath, "'", "''"),
+	)
+	out, e := exec.Command("powershell", "-NoProfile", "-Command", script).CombinedOutput()
+	if e != nil {
+		return fmt.Errorf("trash failed: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// copyPath copies a file or directory tree from src to dst.
+func copyPath(src, dst string) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return copyDir(src, dst, info.Mode())
+	}
+	return copyFile(src, dst, info.Mode())
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	buf := make([]byte, 256*1024)
+	for {
+		n, readErr := in.Read(buf)
+		if n > 0 {
+			if _, writeErr := out.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			return readErr
+		}
+	}
+	return nil
+}
+
+func copyDir(src, dst string, mode os.FileMode) error {
+	if err := os.MkdirAll(dst, mode); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		srcPath := filepath.Join(src, e.Name())
+		dstPath := filepath.Join(dst, e.Name())
+		info, err := e.Info()
+		if err != nil {
+			return err
+		}
+		if e.IsDir() {
+			if err := copyDir(srcPath, dstPath, info.Mode()); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath, info.Mode()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

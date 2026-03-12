@@ -36,11 +36,14 @@ cd dirgo
 make build
 ```
 
-### Homebrew (coming soon)
+### Homebrew
 
 ```bash
-brew install mohsinkaleem/tap/dirgo
+brew tap mohsinkaleem/tap
+brew install drigo
 ```
+
+For maintainers, release + tap publishing steps are documented in [docs/release-and-homebrew.md](docs/release-and-homebrew.md).
 
 ## Usage
 
