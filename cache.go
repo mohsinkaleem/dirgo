@@ -78,5 +78,3 @@ func (c *lruCache) evictOldest() {
 		delete(c.items, item.key)
 	}
 }
-
-

@@ -2,7 +2,7 @@
 
 A fast, interactive terminal directory analyzer built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea). Visualize disk usage, explore directories, and identify space hogs — all from your terminal.
 
-![dirgo screenshot](https://raw.githubusercontent.com/mohsinkaleem/dirgo/main/.github/screenshot.png)
+![dirgo screenshot](https://raw.githubusercontent.com/mohsinkaleem/dirgo/main/.github/dirgo-view.png)
 
 ## Features
 
