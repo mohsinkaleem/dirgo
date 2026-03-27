@@ -47,6 +47,7 @@ brews:
   - repository:
       owner: mohsinkaleem
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/mohsinkaleem/dirgo
     description: Fast, interactive terminal directory analyzer
     license: MIT
