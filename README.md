@@ -1,6 +1,10 @@
 # dirgo
 
-A fast, interactive terminal directory analyzer built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea). Visualize disk usage, explore directories, and identify space hogs — all from your terminal.
+[![CI](https://github.com/mohsinkaleem/dirgo/actions/workflows/ci.yml/badge.svg)](https://github.com/mohsinkaleem/dirgo/actions/workflows/ci.yml)
+[![Release](https://github.com/mohsinkaleem/dirgo/actions/workflows/release.yml/badge.svg)](https://github.com/mohsinkaleem/dirgo/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+A fast, minimal and interactive terminal directory analyzer built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea). Visualize disk usage, explore directories, files, and identify space hogs — all from your terminal.
 
 ![dirgo screenshot](https://raw.githubusercontent.com/mohsinkaleem/dirgo/main/.github/dirgo-view.png)
 
@@ -111,7 +115,7 @@ utils.go       Formatting, line counting (bytes.Count + sync.Pool), helpers
 ### Caching
 
 - **In-memory**: LRU cache holding up to 100 directory scan results. Accessed on navigation; updated on scan completion.
-- **On-disk**: Top 50 LRU entries serialized to `$XDG_CACHE_HOME/dirgo/cache.gob` (or `~/.cache/dirgo/cache.gob` if `XDG_CACHE_HOME` is unset) on quit. Entries older than 24 hours are discarded on load.
+- **On-disk**: Not implemented as of now. Wanted to keep it simple and deterministic.
 
 ### Smart Refresh
 
