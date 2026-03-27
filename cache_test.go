@@ -2,7 +2,6 @@ package main
 
 import (
 	"testing"
-	"time"
 )
 
 func TestLRUCachePutGet(t *testing.T) {
@@ -81,42 +80,6 @@ func TestLRUCacheUpdate(t *testing.T) {
 	}
 	if c.Len() != 1 {
 		t.Errorf("expected length 1, got %d", c.Len())
-	}
-}
-
-func TestLRUCacheDiskRoundtrip(t *testing.T) {
-	// Use a temp directory to avoid corrupting the user's actual cache
-	tmpDir := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", tmpDir)
-
-	c := newLRUCache(10)
-	c.Put("/test/dir1", scanResultMsg{
-		path:       "/test/dir1",
-		totalFiles: 42,
-		dirModTime: time.Now(),
-		entries: []FileEntry{
-			{Name: "file.go", Size: 1024, IsDir: false},
-		},
-	})
-
-	if err := c.SaveToDisk(); err != nil {
-		t.Fatalf("SaveToDisk: %v", err)
-	}
-
-	c2 := newLRUCache(10)
-	if err := c2.LoadFromDisk(); err != nil {
-		t.Fatalf("LoadFromDisk: %v", err)
-	}
-
-	v, ok := c2.Get("/test/dir1")
-	if !ok {
-		t.Fatal("expected to find /test/dir1 after load")
-	}
-	if v.totalFiles != 42 {
-		t.Errorf("expected totalFiles=42, got %d", v.totalFiles)
-	}
-	if len(v.entries) != 1 || v.entries[0].Name != "file.go" {
-		t.Error("entries not preserved through disk roundtrip")
 	}
 }
 

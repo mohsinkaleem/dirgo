@@ -98,7 +98,6 @@ func NewModel(path string) Model {
 	gi.Width = 50
 
 	cache := newLRUCache(100)
-	_ = cache.LoadFromDisk() // best-effort load
 
 	return Model{
 		path:          path,
@@ -382,8 +381,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, m.keys.Quit):
-			// Save cache to disk on quit
-			_ = m.cache.SaveToDisk()
 			return m, tea.Quit
 
 		case key.Matches(msg, m.keys.Up):
@@ -849,7 +846,7 @@ func (m Model) quickLook() (Model, tea.Cmd) {
 		cmd = exec.Command("qlmanage", "-p", targetPath)
 	case "linux":
 		// Try common previewers in order of preference
-		for _, opener := range []string{"xdg-open", "gnome-open", "less"} {
+		for _, opener := range []string{"xdg-open", "gnome-open"} {
 			if _, err := exec.LookPath(opener); err == nil {
 				cmd = exec.Command(opener, targetPath)
 				break
