@@ -44,7 +44,7 @@ make build
 
 ```bash
 brew tap mohsinkaleem/tap
-brew install drigo
+brew install dirgo
 ```
 
 For maintainers, release + tap publishing steps are documented in [docs/release-and-homebrew.md](docs/release-and-homebrew.md).
