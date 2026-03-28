@@ -37,3 +37,6 @@ coverage/
 
 # Env
 *.env
+
+.archive/
+archive/
