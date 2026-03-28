@@ -26,6 +26,16 @@ A fast, minimal and interactive terminal directory analyzer built with Go and [B
 
 ## Install
 
+### pip / uv (any platform)
+
+```bash
+pip install dirgo
+```
+
+```bash
+uv tool install dirgo
+```
+
 ### Go install
 
 ```bash

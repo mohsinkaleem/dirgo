@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dirgo"
+version = "1.1.0"
+description = "Fast, minimal and interactive terminal directory analyzer"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [{ name = "Mohsin Kaleem" }]
+keywords = ["terminal", "directory", "disk-usage", "cli", "tui"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Other",
+    "Topic :: System :: Filesystems",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/mohsinkaleem/dirgo"
+Repository = "https://github.com/mohsinkaleem/dirgo"
+Issues = "https://github.com/mohsinkaleem/dirgo/issues"
+
+[project.scripts]
+dirgo = "dirgo_python._cli:main"
+
+[tool.setuptools.packages.find]
+include = ["dirgo_python*"]

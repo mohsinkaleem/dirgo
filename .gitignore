@@ -22,6 +22,11 @@ build/
 .DS_Store
 Thumbs.db
 
+# Python
+.venv/
+*.egg-info/
+__pycache__/
+
 # Go
 vendor/
 coverage/
