@@ -1,0 +1,1737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>dirgo — Architecture &amp; Implementation Guide</title>
+<style>
+:root{
+  --bg:#0b0f14;
+  --bg-2:#0f151d;
+  --bg-3:#141c26;
+  --panel:#111922;
+  --line:#1e2937;
+  --line-2:#26313f;
+  --fg:#d7e0ea;
+  --fg-dim:#8ea0b5;
+  --fg-dimmer:#63748a;
+  --accent:#51d0f0;
+  --accent-2:#7c9cf5;
+  --green:#5fd08a;
+  --yellow:#f2c94c;
+  --orange:#f2994a;
+  --red:#eb5757;
+  --purple:#b98cf0;
+  --radius:12px;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+html[data-theme="light"]{
+  --bg:#fbfcfe;
+  --bg-2:#f2f5f9;
+  --bg-3:#e8edf4;
+  --panel:#ffffff;
+  --line:#dfe6ef;
+  --line-2:#cbd6e3;
+  --fg:#16202b;
+  --fg-dim:#4c5c6f;
+  --fg-dimmer:#76869a;
+  --accent:#0a7ea4;
+  --accent-2:#3b5bdb;
+  --green:#237a4b;
+  --yellow:#9a7500;
+  --orange:#b3600f;
+  --red:#c0392b;
+  --purple:#7b4fc0;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:80px}
+body{
+  margin:0;background:var(--bg);color:var(--fg);
+  font-family:var(--sans);font-size:15.5px;line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ---------- reading progress ---------- */
+#progress{
+  position:fixed;top:0;left:0;height:2px;width:0%;
+  background:linear-gradient(90deg,var(--accent),var(--accent-2),var(--purple));
+  z-index:100;transition:width .08s linear;
+}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:274px minmax(0,1fr);max-width:1500px;margin:0 auto}
+.sidebar{
+  position:sticky;top:0;height:100vh;overflow-y:auto;
+  border-right:1px solid var(--line);padding:26px 18px 60px;background:var(--bg-2);
+}
+.sidebar::-webkit-scrollbar{width:8px}
+.sidebar::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.brand .logo{
+  width:30px;height:30px;border-radius:8px;flex:0 0 auto;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  display:grid;place-items:center;color:#04121a;font-weight:800;font-family:var(--mono);font-size:15px;
+}
+.brand b{font-size:17px;letter-spacing:.2px}
+.brand-sub{color:var(--fg-dimmer);font-size:12px;margin:0 0 20px 40px;font-family:var(--mono)}
+nav.toc{font-size:13.5px}
+nav.toc .grp{
+  text-transform:uppercase;letter-spacing:.09em;font-size:10.5px;color:var(--fg-dimmer);
+  margin:20px 0 7px;font-weight:700;
+}
+nav.toc a{
+  display:block;padding:5px 10px;border-radius:7px;color:var(--fg-dim);
+  border-left:2px solid transparent;line-height:1.4;
+}
+nav.toc a:hover{background:var(--bg-3);color:var(--fg);text-decoration:none}
+nav.toc a.active{color:var(--accent);background:var(--bg-3);border-left-color:var(--accent);font-weight:600}
+.xlink{display:block;margin-top:18px;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;
+  font-size:12.5px;color:var(--fg-dim);background:var(--bg-3)}
+.xlink:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
+.xlink b{display:block;color:var(--fg);font-size:13px;margin-bottom:2px}
+.xlink:hover b{color:var(--accent)}
+
+main{padding:0 46px 140px;min-width:0}
+.wrap{max-width:920px}
+
+/* ---------- hero ---------- */
+header.hero{padding:64px 0 34px;border-bottom:1px solid var(--line);margin-bottom:36px}
+.eyebrow{
+  font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:14px;
+}
+h1{font-size:44px;line-height:1.12;margin:0 0 16px;letter-spacing:-.02em;font-weight:750}
+h1 .sub{
+  display:block;font-size:19px;font-weight:400;color:var(--fg-dim);margin-top:12px;letter-spacing:0;
+}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+.chip{
+  font-family:var(--mono);font-size:11.5px;padding:4px 10px;border-radius:999px;
+  border:1px solid var(--line-2);color:var(--fg-dim);background:var(--bg-2);
+}
+.chip.on{border-color:var(--accent);color:var(--accent)}
+
+h2{
+  font-size:27px;margin:64px 0 14px;letter-spacing:-.015em;font-weight:700;
+  padding-top:8px;scroll-margin-top:24px;
+}
+h2 .hash{color:var(--line-2);font-family:var(--mono);font-size:19px;margin-right:9px}
+h3{font-size:18.5px;margin:36px 0 10px;font-weight:650;letter-spacing:-.01em}
+h4{font-size:15px;margin:24px 0 8px;font-weight:650;color:var(--fg-dim);
+   font-family:var(--mono);letter-spacing:0}
+p{margin:0 0 15px}
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin:6px 0}
+strong{color:var(--fg);font-weight:650}
+code{
+  font-family:var(--mono);font-size:.875em;background:var(--bg-3);
+  padding:2px 6px;border-radius:5px;color:var(--accent);border:1px solid var(--line);
+}
+h2 code,h3 code,h4 code{font-size:.9em}
+kbd{
+  font-family:var(--mono);font-size:.8em;padding:1px 6px;border-radius:5px;
+  background:var(--bg-3);border:1px solid var(--line-2);
+  border-bottom-width:2px;color:var(--fg);white-space:nowrap;
+}
+
+/* ---------- cards ---------- */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:26px 0}
+.card{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px 18px;
+}
+.card .big{font-size:26px;font-weight:700;font-family:var(--mono);color:var(--accent);letter-spacing:-.02em}
+.card .lbl{font-size:12.5px;color:var(--fg-dimmer);margin-top:2px}
+
+/* ---------- code ---------- */
+figure.code{margin:20px 0;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--bg-2)}
+figure.code figcaption{
+  font-family:var(--mono);font-size:11.5px;color:var(--fg-dimmer);
+  padding:8px 14px;background:var(--bg-3);border-bottom:1px solid var(--line);
+  display:flex;justify-content:space-between;align-items:center;gap:12px;
+}
+figure.code figcaption .tag{color:var(--accent);letter-spacing:.04em}
+pre{margin:0;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.62}
+pre code{background:none;border:none;padding:0;border-radius:0;color:var(--fg);font-size:inherit}
+pre::-webkit-scrollbar{height:9px}
+pre::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+.k{color:var(--purple)}
+.s{color:var(--green)}
+.c{color:var(--fg-dimmer);font-style:italic}
+.n{color:var(--orange)}
+.f{color:var(--accent-2)}
+.copy{
+  border:1px solid var(--line-2);background:transparent;color:var(--fg-dimmer);
+  font-family:var(--mono);font-size:10.5px;padding:3px 9px;border-radius:6px;cursor:pointer;
+}
+.copy:hover{color:var(--accent);border-color:var(--accent)}
+
+/* ---------- tables ---------- */
+.tw{overflow-x:auto;margin:20px 0;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:13.6px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{
+  background:var(--bg-3);font-size:11px;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--fg-dimmer);font-weight:700;white-space:nowrap;
+}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--bg-2)}
+td code{background:transparent;border:none;padding:0;color:var(--accent)}
+td.mono,th.mono{font-family:var(--mono);font-size:12.6px;white-space:nowrap}
+
+/* ---------- callouts ---------- */
+.note{
+  border-left:3px solid var(--accent);background:var(--bg-2);
+  padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0;font-size:14.4px;
+}
+.note.warn{border-left-color:var(--orange)}
+.note.danger{border-left-color:var(--red)}
+.note.good{border-left-color:var(--green)}
+.note .t{
+  font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--accent);display:block;margin-bottom:6px;
+}
+.note.warn .t{color:var(--orange)}
+.note.danger .t{color:var(--red)}
+.note.good .t{color:var(--green)}
+.note p:last-child{margin-bottom:0}
+
+/* ---------- diagrams ---------- */
+.diagram{
+  margin:26px 0;padding:22px 18px;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--radius);overflow-x:auto;
+}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .cap{
+  text-align:center;color:var(--fg-dimmer);font-size:12.4px;margin-top:14px;font-family:var(--mono);
+}
+svg text{font-family:var(--mono);fill:var(--fg)}
+svg .bx{fill:var(--bg-3);stroke:var(--line-2)}
+svg .bx-a{fill:rgba(81,208,240,.09);stroke:var(--accent)}
+svg .bx-g{fill:rgba(95,208,138,.09);stroke:var(--green)}
+svg .bx-p{fill:rgba(185,140,240,.10);stroke:var(--purple)}
+svg .bx-o{fill:rgba(242,153,74,.10);stroke:var(--orange)}
+svg .ln{stroke:var(--line-2);fill:none}
+svg .ln-a{stroke:var(--accent);fill:none}
+svg .lbl{font-size:11px;fill:var(--fg-dim)}
+svg .ttl{font-size:12.5px;font-weight:700}
+svg .sm{font-size:10px;fill:var(--fg-dimmer)}
+
+/* ---------- misc ---------- */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}
+.pill{
+  display:inline-block;font-family:var(--mono);font-size:10.5px;padding:2px 8px;border-radius:5px;
+  border:1px solid var(--line-2);color:var(--fg-dimmer);margin-right:6px;
+}
+.pill.ok{color:var(--green);border-color:var(--green)}
+.pill.hot{color:var(--orange);border-color:var(--orange)}
+.pill.cool{color:var(--accent);border-color:var(--accent)}
+hr{border:none;border-top:1px solid var(--line);margin:48px 0}
+footer.end{
+  margin-top:70px;padding-top:26px;border-top:1px solid var(--line);
+  color:var(--fg-dimmer);font-size:13px;
+}
+#themeBtn{
+  position:fixed;right:22px;bottom:22px;z-index:50;
+  width:40px;height:40px;border-radius:50%;cursor:pointer;
+  background:var(--panel);border:1px solid var(--line-2);color:var(--fg-dim);font-size:16px;
+}
+#themeBtn:hover{color:var(--accent);border-color:var(--accent)}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:1fr}
+  .sidebar{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line);padding-bottom:18px}
+  nav.toc{max-height:210px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--radius);padding:4px 10px}
+  nav.toc .grp{margin-top:12px}
+  main{padding:0 22px 90px}
+  h1{font-size:33px}
+  .split{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<div class="shell">
+<aside class="sidebar">
+  <div class="brand"><div class="logo">▸</div><b>dirgo</b></div>
+  <div class="brand-sub">architecture &amp; internals</div>
+  <nav class="toc">
+    <div class="grp">Foundations</div>
+    <a href="#overview">1 · Overview</a>
+    <a href="#stack">2 · Stack &amp; dependencies</a>
+    <a href="#architecture">3 · Architecture (MVU)</a>
+    <a href="#components">4 · Component map</a>
+    <a href="#datamodel">5 · Data model</a>
+    <a href="#messages">6 · Message catalog</a>
+
+    <div class="grp">The engine</div>
+    <a href="#scanner">7 · Scanning pipeline</a>
+    <a href="#concurrency">8 · Concurrency deep dive</a>
+    <a href="#primitives">8.1 · Primitives in use</a>
+    <a href="#semaphore">8.2 · Bounded fan-out</a>
+    <a href="#sliceshare">8.3 · Lock-free result writes</a>
+    <a href="#progress-sec">8.4 · Atomic progress</a>
+    <a href="#mutexmap">8.5 · Mutex-guarded map</a>
+    <a href="#pool">8.6 · Buffer pooling</a>
+    <a href="#subprocess">8.7 · Subprocesses</a>
+    <a href="#racesafety">8.8 · Race-safety analysis</a>
+    <a href="#tuning">8.9 · Tuning &amp; thresholds</a>
+
+    <div class="grp">State &amp; UI</div>
+    <a href="#cache">9 · Cache &amp; smart refresh</a>
+    <a href="#linecount">10 · Line counting</a>
+    <a href="#render">11 · Render pipeline</a>
+    <a href="#navigation">12 · Navigation &amp; modes</a>
+    <a href="#keys">13 · Keybindings</a>
+
+    <div class="grp">Operations</div>
+    <a href="#perf">14 · Performance techniques</a>
+    <a href="#security">15 · Safety &amp; hardening</a>
+    <a href="#build">16 · Build, test, ship</a>
+    <a href="#caveats">17 · Trade-offs &amp; caveats</a>
+  </nav>
+  <a class="xlink" href="explore.html">
+    <b>Interactive tour →</b>
+    Drive a replica of the TUI, step through the message loop, and run the concurrent scanner live.
+  </a>
+</aside>
+
+<main>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Implementation Guide</div>
+  <h1>dirgo
+    <span class="sub">A fast, interactive terminal directory analyzer — how it is built, how it stays responsive, and how it uses Go's concurrency model to keep a single-threaded UI honest.</span>
+  </h1>
+  <div class="chips">
+    <span class="chip on">Go 1.25</span>
+    <span class="chip on">Bubble Tea (MVU)</span>
+    <span class="chip">Lipgloss</span>
+    <span class="chip">Bubbles</span>
+    <span class="chip">goroutines + semaphores</span>
+    <span class="chip">atomics</span>
+    <span class="chip">sync.Pool</span>
+    <span class="chip">LRU cache</span>
+    <span class="chip">macOS · Linux · Windows</span>
+  </div>
+</header>
+
+<div class="note">
+  <span class="t">New here? Start with the tour</span>
+  <p>This page is the <strong>reference</strong> — precise, dense, and organised for lookup. If you would
+  rather learn by doing, the <a href="explore.html"><strong>interactive tour</strong></a> lets you drive a
+  working replica of the TUI, step through the message loop one frame at a time, run the concurrent
+  scanner with adjustable core counts, and click through a map of the codebase. Come back here for the
+  details.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="overview"><span class="hash">01</span>Overview</h2>
+
+<p><strong>dirgo</strong> is a terminal UI that answers one question fast: <em>what is eating my disk?</em>
+It lists every child of a directory sorted by size, with proportional bars, recursive roll-ups, line
+counts, fuzzy search, and one-key navigation. (<a href="explore.html#tui">Try the replica</a> if you have
+not seen it running.)</p>
+
+<p>The engineering problem is not "walk a filesystem". It is: <strong>walking a filesystem is slow and
+unbounded, but a UI must repaint in milliseconds.</strong> Every design decision in the codebase falls
+out of that tension:</p>
+
+<ul>
+  <li><strong>The UI never blocks.</strong> All filesystem work happens in goroutines detached from the render loop.</li>
+  <li><strong>Work is parallel but bounded.</strong> Directory recursion fans out across cores, capped by a semaphore so the OS is not drowned in concurrent syscalls.</li>
+  <li><strong>Progress is observable while it happens.</strong> Scanner goroutines publish counters through atomics that the UI samples on each spinner tick.</li>
+  <li><strong>Nothing is scanned twice if it can be helped.</strong> An LRU cache plus a modtime check make re-navigation and refresh effectively free.</li>
+  <li><strong>Rendering is allocation-averse.</strong> Reused builders, pre-computed styles, and slice reuse keep the per-frame cost flat.</li>
+</ul>
+
+<div class="cards">
+  <div class="card"><div class="big">9</div><div class="lbl">Go source files, single <code>main</code> package</div></div>
+  <div class="card"><div class="big">~1.6k</div><div class="lbl">lines of application code</div></div>
+  <div class="card"><div class="big">3</div><div class="lbl">direct dependencies (all Charm)</div></div>
+  <div class="card"><div class="big">1</div><div class="lbl">goroutine that may touch <code>Model</code></div></div>
+</div>
+
+<div class="note good">
+  <span class="t">Mental model</span>
+  <p>Think of dirgo as a <strong>single-threaded state machine surrounded by a pool of disposable workers</strong>.
+  Workers do I/O and return immutable snapshots; the state machine folds those snapshots into the
+  model and repaints. There is no shared mutable state between the two halves except a handful of
+  atomic counters.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="stack"><span class="hash">02</span>Stack &amp; dependencies</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>Dependency</th><th>Role in dirgo</th></tr></thead>
+<tbody>
+<tr><td class="mono">charmbracelet/bubbletea</td><td>The MVU runtime: owns the terminal, the event loop, the message queue, and the goroutine that executes <code>tea.Cmd</code> functions. Also provides <code>tea.ExecProcess</code> to hand the terminal to a child process (hex view) and give it back.</td></tr>
+<tr><td class="mono">charmbracelet/bubbles</td><td>Off-the-shelf sub-components: <code>spinner</code> (loading animation + tick messages), <code>textinput</code> (search and <code>cd</code> prompts), <code>key</code> (declarative binding matcher used by <code>KeyMap</code>).</td></tr>
+<tr><td class="mono">charmbracelet/lipgloss</td><td>Styling and layout: ANSI colours, padding, borders, and — critically — <code>lipgloss.Width()</code>, which measures <em>visual</em> width so emoji and CJK filenames do not break column alignment.</td></tr>
+<tr><td class="mono">stdlib only, elsewhere</td><td><code>os</code>, <code>path/filepath</code>, <code>sync</code>, <code>sync/atomic</code>, <code>container/list</code>, <code>bytes</code>, <code>runtime/pprof</code>, <code>os/exec</code>. No filesystem-walk library, no logging framework, no config parser.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Distribution is dual-track: a Go module installable with <code>go install</code> / Homebrew, and a thin
+Python wrapper package (<code>dirgo_python</code>) that downloads the correct prebuilt binary for the
+host platform on first run and <code>exec</code>s it — so <code>pip install dirgo</code> works without a Go toolchain.</p>
+
+<!-- ============================================================ -->
+<h2 id="architecture"><span class="hash">03</span>Architecture: the MVU loop</h2>
+
+<p>dirgo follows <strong>The Elm Architecture</strong> as implemented by Bubble Tea. Three methods define the
+whole application surface:</p>
+
+<div class="tw">
+<table>
+<thead><tr><th class="mono">Method</th><th>Signature</th><th>Contract</th></tr></thead>
+<tbody>
+<tr><td class="mono">Init</td><td class="mono">() tea.Cmd</td><td>Returns the initial side effects. dirgo batches the first directory scan with the spinner tick.</td></tr>
+<tr><td class="mono">Update</td><td class="mono">(tea.Msg) (tea.Model, tea.Cmd)</td><td>Pure-ish state transition. Takes a <em>value</em> receiver: it is handed a copy of the model and returns a new one. Never performs blocking I/O.</td></tr>
+<tr><td class="mono">View</td><td class="mono">() string</td><td>Renders the entire screen as one string. Also a value receiver — it cannot mutate anything the runtime will observe.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The value receiver is the load-bearing detail. Because <code>Model</code> is copied on every
+<code>Update</code>, and because the runtime serialises all message delivery onto one goroutine, no
+lock is ever needed to protect application state. Concurrency is pushed entirely into
+<code>tea.Cmd</code> closures, which communicate <em>only</em> by returning a message.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 880 430" role="img" aria-label="Bubble Tea MVU loop with command goroutines">
+  <!-- UI goroutine band -->
+  <rect x="20" y="18" width="530" height="230" rx="12" class="bx" opacity=".5"/>
+  <text x="36" y="42" class="sm">UI GOROUTINE — strictly serial, no locks</text>
+
+  <rect x="52" y="62" width="140" height="52" rx="9" class="bx-a"/>
+  <text x="122" y="86" class="ttl" text-anchor="middle">Msg queue</text>
+  <text x="122" y="102" class="sm" text-anchor="middle">keys · mouse · resize</text>
+
+  <rect x="252" y="62" width="140" height="52" rx="9" class="bx-a"/>
+  <text x="322" y="86" class="ttl" text-anchor="middle">Update(msg)</text>
+  <text x="322" y="102" class="sm" text-anchor="middle">value receiver</text>
+
+  <rect x="252" y="168" width="140" height="52" rx="9" class="bx-a"/>
+  <text x="322" y="192" class="ttl" text-anchor="middle">View()</text>
+  <text x="322" y="208" class="sm" text-anchor="middle">string → diff → tty</text>
+
+  <rect x="422" y="115" width="106" height="52" rx="9" class="bx"/>
+  <text x="475" y="139" class="ttl" text-anchor="middle">Model′</text>
+  <text x="475" y="155" class="sm" text-anchor="middle">immutable copy</text>
+
+  <!-- arrows in band -->
+  <path d="M192 88 H246" class="ln-a" marker-end="url(#ar)"/>
+  <path d="M392 88 H470 V109" class="ln-a" marker-end="url(#ar)"/>
+  <path d="M470 167 V194 H398" class="ln-a" marker-end="url(#ar)"/>
+  <path d="M252 194 H120 V120" class="ln" marker-end="url(#ar)" stroke-dasharray="4 4"/>
+  <text x="150" y="240" class="sm">repaint</text>
+
+  <!-- command goroutines -->
+  <rect x="600" y="18" width="262" height="392" rx="12" class="bx" opacity=".5"/>
+  <text x="616" y="42" class="sm">COMMAND GOROUTINES — parallel I/O</text>
+
+  <rect x="626" y="62" width="210" height="46" rx="9" class="bx-g"/>
+  <text x="731" y="83" class="ttl" text-anchor="middle">scanDirectory</text>
+  <text x="731" y="98" class="sm" text-anchor="middle">fan-out, bounded by NumCPU</text>
+
+  <rect x="626" y="120" width="210" height="46" rx="9" class="bx-g"/>
+  <text x="731" y="141" class="ttl" text-anchor="middle">smartRefreshCmd</text>
+  <text x="731" y="156" class="sm" text-anchor="middle">modtime probe → maybe rescan</text>
+
+  <rect x="626" y="178" width="210" height="46" rx="9" class="bx-g"/>
+  <text x="731" y="199" class="ttl" text-anchor="middle">countLinesCmd</text>
+  <text x="731" y="214" class="sm" text-anchor="middle">selected file only</text>
+
+  <rect x="626" y="236" width="210" height="46" rx="9" class="bx-g"/>
+  <text x="731" y="257" class="ttl" text-anchor="middle">countAllLinesCmd</text>
+  <text x="731" y="272" class="sm" text-anchor="middle">worker pool + mutex map</text>
+
+  <rect x="626" y="294" width="210" height="46" rx="9" class="bx-g"/>
+  <text x="731" y="315" class="ttl" text-anchor="middle">trashCmd</text>
+  <text x="731" y="330" class="sm" text-anchor="middle">osascript / gio / powershell</text>
+
+  <rect x="626" y="352" width="210" height="40" rx="9" class="bx-o"/>
+  <text x="731" y="377" class="ttl" text-anchor="middle">spinner.Tick</text>
+
+  <!-- cross arrows -->
+  <path d="M398 76 C500 40 540 46 620 74" class="ln-a" marker-end="url(#ar)"/>
+  <text x="505" y="36" class="sm" text-anchor="middle">tea.Cmd → new goroutine</text>
+  <path d="M620 330 C520 350 240 330 122 122" class="ln" marker-end="url(#ar)" stroke-dasharray="5 4"/>
+  <text x="380" y="368" class="sm" text-anchor="middle">returns tea.Msg → pushed onto queue</text>
+
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="currentColor" style="fill:#6b7b8f"/>
+    </marker>
+  </defs>
+</svg>
+<div class="cap">One serial state machine · N disposable workers · communication only via messages</div>
+</div>
+
+<figure class="code">
+<figcaption><span class="tag">model.go</span><span>the entire concurrency contract, in three lines</span></figcaption>
+<pre><code class="go">func (m Model) Init() tea.Cmd {
+	return tea.Batch(scanDirectory(m.path, m.scanProg), m.spinner.Tick)
+}
+</code></pre>
+</figure>
+
+<p><code>tea.Batch</code> runs both commands concurrently: the scan may take seconds, while the spinner
+ticks every ~100 ms and gives <code>Update</code> a chance to sample progress and repaint.
+<a href="explore.html#trace">Step through the full sequence</a> — launch, scan, keypress, line count —
+one frame at a time in the interactive stepper.</p>
+
+<!-- ============================================================ -->
+<h2 id="components"><span class="hash">04</span>Component map</h2>
+
+<p>Nine files, one <code>main</code> package. For an interactive version with per-file symbols, dependency
+highlighting and "change this when you want to…" pointers, see the
+<a href="explore.html#map">component explorer</a>.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th class="mono">File</th><th>Responsibility</th><th>Notable internals</th></tr></thead>
+<tbody>
+<tr><td class="mono">main.go</td><td>Entry point</td><td>Flag parsing (<code>--version</code>, <code>--profile</code>), path validation via <code>os.Stat</code>, CPU profile lifecycle, program construction with <code>tea.WithAltScreen()</code> and <code>tea.WithMouseCellMotion()</code>.</td></tr>
+<tr><td class="mono">model.go</td><td>State + <code>Update</code> + <code>View</code></td><td>~40 fields of UI state, the message switch, navigation (<code>navigateIn/Up/To</code>), external process launchers (open, Quick Look, hex view), and the trash implementations per OS.</td></tr>
+<tr><td class="mono">scanner.go</td><td>All filesystem traversal</td><td><code>scanDirectory</code>, <code>dirSizeRecursive</code>, <code>smartRefreshCmd</code>, <code>countLinesCmd</code>, <code>countAllLinesCmd</code>, and the <code>ScanProgress</code> atomic counter block.</td></tr>
+<tr><td class="mono">cache.go</td><td>Bounded LRU</td><td><code>container/list</code> + <code>map[string]*list.Element</code> behind a <code>sync.Mutex</code>; O(1) get/put/evict.</td></tr>
+<tr><td class="mono">entry.go</td><td>Domain model</td><td><code>FileEntry</code>, <code>ViewFilter</code>, size sorting, allocation-reusing <code>filterEntriesInto</code>, ASCII-fast <code>fuzzyMatch</code>.</td></tr>
+<tr><td class="mono">render.go</td><td>Presentation</td><td>Header (adaptive 1–2 lines), row layout arithmetic, footer key bar, centred help overlay.</td></tr>
+<tr><td class="mono">styles.go</td><td>Theme</td><td>Pre-allocated Lipgloss styles — deliberately package-level so no style object is constructed per row.</td></tr>
+<tr><td class="mono">keys.go</td><td>Input bindings</td><td>Declarative <code>KeyMap</code> struct; every binding carries its own help text, so help and behaviour cannot drift.</td></tr>
+<tr><td class="mono">utils.go</td><td>Primitives</td><td>Size/count formatting, visual-width-aware truncation and padding, pooled-buffer line counting, binary sniffing, bar rendering.</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="datamodel"><span class="hash">05</span>Data model</h2>
+
+<p>Everything the UI draws comes from one flat struct. There is no tree in memory — dirgo holds
+exactly one directory level at a time, with recursive <em>aggregates</em> rolled into each directory row.
+That is what keeps memory flat regardless of how deep the tree is.</p>
+
+<figure class="code">
+<figcaption><span class="tag">entry.go</span><span>FileEntry</span></figcaption>
+<pre><code class="go">type FileEntry struct {
+	Name       string
+	Size       int64     // for dirs: recursive total of all descendants
+	IsDir      bool
+	IsHidden   bool      // name starts with '.'
+	IsBinary   bool      // decided by extension at scan time, cheap
+	IsSymlink  bool
+	LineCount  int       // 0 = unknown / binary / directory; filled in lazily
+	Percentage float64   // share of the parent's total size, drives the bar
+	ChildFiles int       // recursive descendant file count  (dirs only)
+	ChildDirs  int       // recursive descendant dir count   (dirs only)
+	ModTime    time.Time
+}
+</code></pre>
+</figure>
+
+<p>Two derived views are maintained on the model:</p>
+
+<ul>
+  <li><code>entries</code> — the full scan result, sorted by size descending (stable sort, so equal-size entries keep directory-listing order).</li>
+  <li><code>filtered</code> — the subset currently visible after <em>hidden toggle → type filter → fuzzy search → top-10 clamp</em>. It is rebuilt on every keystroke while searching.</li>
+</ul>
+
+<figure class="code">
+<figcaption><span class="tag">entry.go / model.go</span><span>rebuilding `filtered` without allocating</span></figcaption>
+<pre><code class="go">func (m *Model) applyFilter() {
+	search := m.searchInput.Value()
+	// Reuse the underlying array to reduce GC pressure: [:0] keeps capacity.
+	m.filtered = filterEntriesInto(m.filtered[:0], m.entries, m.showHidden, m.viewFilter, search)
+	if m.topMode && len(m.filtered) > 10 {
+		m.filtered = m.filtered[:10]
+	}
+}
+</code></pre>
+</figure>
+
+<p>Search uses a <strong>subsequence</strong> match rather than substring, so <code>mgo</code> finds
+<code>model.go</code> and <code>rdm</code> finds <code>README.md</code>. The comparison lowercases with a
+hand-rolled ASCII branch instead of <code>strings.ToLower</code> — no allocation, and it runs once
+per character per entry on every keystroke.</p>
+
+<figure class="code">
+<figcaption><span class="tag">entry.go</span><span>allocation-free fuzzy match</span></figcaption>
+<pre><code class="go">func fuzzyMatch(name, pattern string) bool {
+	pi := 0
+	for ni := 0; ni &lt; len(name) &amp;&amp; pi &lt; len(pattern); ni++ {
+		if toLower(name[ni]) == toLower(pattern[pi]) {
+			pi++
+		}
+	}
+	return pi == len(pattern)
+}
+</code></pre>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="messages"><span class="hash">06</span>Message catalog</h2>
+
+<p>Messages are the only channel through which the outside world reaches application state.
+They are plain structs — no interfaces, no channels exposed to application code.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th class="mono">Message</th><th>Produced by</th><th>Effect on the model</th></tr></thead>
+<tbody>
+<tr><td class="mono">scanResultMsg</td><td><code>scanDirectory</code> goroutine</td><td>Populates entries/totals, caches by path, computes deep totals, clears <code>loading</code>, releases the <code>ScanProgress</code> block, restores a remembered cursor, and fires a line-count command for the newly selected file.</td></tr>
+<tr><td class="mono">scanUpToDateMsg</td><td><code>smartRefreshCmd</code></td><td>Just clears <code>loading</code>. The screen never flickers because nothing was replaced.</td></tr>
+<tr><td class="mono">scanErrorMsg</td><td>scan / hex view</td><td>Stores the error for the centred error panel.</td></tr>
+<tr><td class="mono">lineCountMsg</td><td><code>countLinesCmd</code></td><td>Patches one entry in <code>entries</code>, <code>filtered</code>, <em>and</em> the cached copy — a write-back so re-navigation keeps the count.</td></tr>
+<tr><td class="mono">batchLineCountMsg</td><td><code>countAllLinesCmd</code></td><td>Bulk-applies a <code>map[name]int</code> across all three of the same locations.</td></tr>
+<tr><td class="mono">trashResultMsg</td><td><code>trashCmd</code></td><td>Removes the row locally, adjusts totals, recomputes every percentage, and invalidates the cache entry for the current path — deliberately avoiding a full rescan.</td></tr>
+<tr><td class="mono">spinner.TickMsg</td><td>bubbles/spinner</td><td>Advances the animation and samples the atomic progress counters into display fields.</td></tr>
+<tr><td class="mono">tea.KeyMsg</td><td>runtime</td><td>Routed through a mode cascade: goto → search → help → normal.</td></tr>
+<tr><td class="mono">tea.MouseMsg</td><td>runtime</td><td>Wheel up/down moves the cursor 3 rows and triggers a line count.</td></tr>
+<tr><td class="mono">tea.WindowSizeMsg</td><td>runtime</td><td>Stores dimensions and rebuilds the cached separator string — see <a href="#render">§11</a> for why this lives in <code>Update</code> and not <code>View</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="scanner"><span class="hash">07</span>The scanning pipeline</h2>
+
+<p>A scan of directory <code>D</code> produces one <code>scanResultMsg</code>. Internally it runs in five phases.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 880 330" role="img" aria-label="Five-phase scan pipeline">
+  <rect x="14" y="24" width="150" height="80" rx="10" class="bx-a"/>
+  <text x="89" y="50" class="ttl" text-anchor="middle">1 · Read</text>
+  <text x="89" y="70" class="sm" text-anchor="middle">os.ReadDir(D)</text>
+  <text x="89" y="86" class="sm" text-anchor="middle">one getdirentries</text>
+
+  <rect x="188" y="24" width="150" height="80" rx="10" class="bx-a"/>
+  <text x="263" y="50" class="ttl" text-anchor="middle">2 · Partition</text>
+  <text x="263" y="70" class="sm" text-anchor="middle">dirs vs files</text>
+  <text x="263" y="86" class="sm" text-anchor="middle">symlink resolution</text>
+
+  <rect x="362" y="24" width="150" height="80" rx="10" class="bx-g"/>
+  <text x="437" y="50" class="ttl" text-anchor="middle">3 · Dir sizes</text>
+  <text x="437" y="70" class="sm" text-anchor="middle">parallel recursion</text>
+  <text x="437" y="86" class="sm" text-anchor="middle">sem = min(NumCPU,16)</text>
+
+  <rect x="536" y="24" width="150" height="80" rx="10" class="bx-g"/>
+  <text x="611" y="50" class="ttl" text-anchor="middle">4 · File stat</text>
+  <text x="611" y="70" class="sm" text-anchor="middle">parallel if &gt; 20 files</text>
+  <text x="611" y="86" class="sm" text-anchor="middle">sem = NumCPU</text>
+
+  <rect x="710" y="24" width="156" height="80" rx="10" class="bx-a"/>
+  <text x="788" y="50" class="ttl" text-anchor="middle">5 · Finalise</text>
+  <text x="788" y="70" class="sm" text-anchor="middle">percentages</text>
+  <text x="788" y="86" class="sm" text-anchor="middle">SortBySize</text>
+
+  <path d="M164 64 H184" class="ln" marker-end="url(#ar2)"/>
+  <path d="M338 64 H358" class="ln" marker-end="url(#ar2)"/>
+  <path d="M512 64 H532" class="ln" marker-end="url(#ar2)"/>
+  <path d="M686 64 H706" class="ln" marker-end="url(#ar2)"/>
+
+  <!-- fan-out detail -->
+  <rect x="330" y="150" width="400" height="150" rx="10" class="bx" opacity=".55"/>
+  <text x="348" y="172" class="sm">PHASE 3 DETAIL — one goroutine per immediate subdirectory</text>
+
+  <rect x="352" y="188" width="86" height="34" rx="7" class="bx-p"/>
+  <text x="395" y="209" class="sm" text-anchor="middle">g₀ dir A</text>
+  <rect x="352" y="228" width="86" height="34" rx="7" class="bx-p"/>
+  <text x="395" y="249" class="sm" text-anchor="middle">g₁ dir B</text>
+  <rect x="352" y="268" width="86" height="24" rx="7" class="bx"/>
+  <text x="395" y="284" class="sm" text-anchor="middle">gₙ … blocked</text>
+
+  <rect x="470" y="196" width="106" height="56" rx="8" class="bx-o"/>
+  <text x="523" y="218" class="sm" text-anchor="middle">semaphore</text>
+  <text x="523" y="234" class="sm" text-anchor="middle">chan struct{}</text>
+
+  <rect x="608" y="196" width="104" height="56" rx="8" class="bx-a"/>
+  <text x="660" y="218" class="sm" text-anchor="middle">results[i]</text>
+  <text x="660" y="234" class="sm" text-anchor="middle">no mutex</text>
+
+  <path d="M438 205 H466" class="ln" marker-end="url(#ar2)"/>
+  <path d="M438 245 H466 V226" class="ln" marker-end="url(#ar2)"/>
+  <path d="M576 224 H604" class="ln-a" marker-end="url(#ar2)"/>
+  <path d="M437 108 V146" class="ln" marker-end="url(#ar2)" stroke-dasharray="4 4"/>
+
+  <defs>
+    <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" style="fill:#6b7b8f"/>
+    </marker>
+  </defs>
+</svg>
+<div class="cap">Phases 1–2 are serial and cheap · phase 3 is where the wall-clock time lives</div>
+</div>
+
+<h3>Phase 1–2 — one syscall, then partition</h3>
+
+<p><code>os.ReadDir</code> returns <code>[]os.DirEntry</code> from a single <code>getdirentries</code> syscall.
+Crucially, <code>DirEntry.IsDir()</code> and <code>.Type()</code> are answered from data the kernel already
+returned — no per-entry <code>lstat</code>. Symlinks get one extra <code>os.Stat</code> to decide whether they
+point at a directory (and should therefore be recursed into for sizing).</p>
+
+<h3>Phase 3 — recursive sizing, in parallel</h3>
+
+<p>Each immediate subdirectory is sized by <code>dirSizeRecursive</code>, which is a deliberate
+reimplementation of <code>filepath.WalkDir</code>:</p>
+
+<figure class="code">
+<figcaption><span class="tag">scanner.go</span><span>why not filepath.WalkDir</span></figcaption>
+<pre><code class="go">// dirSizeRecursive computes total size, file count, and subdirectory count using
+// os.ReadDir + manual recursion. More efficient than filepath.WalkDir because
+// os.ReadDir uses a single getdirentries syscall per directory, and we only call
+// Info() on files (not dirs) since we only need file sizes.
+func dirSizeRecursive(path string, prog *ScanProgress) (size int64, files int, dirs int) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return 0, 0, 0 // unreadable dir contributes zero; never aborts the scan
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs++
+			if prog != nil {
+				prog.Dirs.Add(1)
+			}
+			s, f, d := dirSizeRecursive(filepath.Join(path, e.Name()), prog)
+			size += s
+			files += f
+			dirs += d
+		} else {
+			files++
+			if info, err := e.Info(); err == nil {
+				size += info.Size()
+				if prog != nil {
+					prog.Files.Add(1)
+					prog.Size.Add(info.Size())
+				}
+			}
+		}
+	}
+	return size, files, dirs
+}
+</code></pre>
+</figure>
+
+<p>Three things matter here:</p>
+<ol>
+  <li><strong>Errors are swallowed, not propagated.</strong> A permission-denied subtree contributes <code>0</code> and the scan continues. A disk analyzer that dies on <code>/proc</code> or a locked folder is useless.</li>
+  <li><strong>Recursion is sequential inside each goroutine.</strong> It does <em>not</em> spawn a goroutine per nested directory. See <a href="#semaphore">§8.2</a> for why that restraint is essential.</li>
+  <li><strong>Progress is published inline.</strong> The atomic adds happen at the leaves, so the counter climbs smoothly even on a single enormous subtree.</li>
+</ol>
+
+<h3>Phase 4–5 — stat, percentage, sort</h3>
+
+<p>Files are stat'ed in parallel only when there are more than 20 of them
+(<a href="#tuning">§8.9</a>). Then each entry's <code>Percentage</code> is computed against the
+directory total, and <code>sort.SliceStable</code> orders by size descending. The result is packed into
+one immutable <code>scanResultMsg</code> and returned — which is how it crosses the goroutine boundary
+back into the UI.</p>
+
+<!-- ============================================================ -->
+<h2 id="concurrency"><span class="hash">08</span>Concurrency deep dive</h2>
+
+<p>This is the part of dirgo worth studying. The program is small, but it exercises six distinct
+concurrency patterns, each chosen because a cheaper one would not have worked — and, just as
+importantly, it <em>declines</em> to use concurrency in several places where it would have been a net loss.</p>
+
+<div class="note">
+  <span class="t">The governing rule</span>
+  <p><strong>Exactly one goroutine may touch <code>Model</code>.</strong> Everything else operates on values it
+  owns exclusively, and publishes results by returning a message. If you find yourself wanting a
+  mutex around model state, the design has been violated.</p>
+</div>
+
+<!-- ---------- 8.1 ---------- -->
+<h3 id="primitives">8.1 · Primitives in use</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th class="mono">Primitive</th><th>Where</th><th>Why this one</th></tr></thead>
+<tbody>
+<tr><td class="mono">goroutine + tea.Cmd</td><td>every I/O operation</td><td>The runtime already spawns a goroutine per command and funnels the return value into the message queue. Free structured concurrency with a serialisation point.</td></tr>
+<tr><td class="mono">chan struct{} (semaphore)</td><td>dir sizing, file stat, batch line count</td><td>Caps <em>in-flight syscalls</em>. A buffered channel is the cheapest counting semaphore in Go — no allocation per acquire, and it blocks rather than spins.</td></tr>
+<tr><td class="mono">sync.WaitGroup</td><td>all three fan-outs</td><td>Join barrier. The parent must not read <code>results</code> until every writer has finished — <code>Wait()</code> provides the happens-before edge that makes those reads legal.</td></tr>
+<tr><td class="mono">atomic.Int64</td><td><code>ScanProgress</code></td><td>Many writers, one reader, high frequency, and a torn read is harmless. A mutex here would serialise the hot leaf loop for no benefit.</td></tr>
+<tr><td class="mono">sync.Mutex</td><td>batch line-count map; LRU cache</td><td>Go maps and <code>container/list</code> are not concurrency-safe, and both are touched under low contention — a mutex is simpler and faster than sharding or <code>sync.Map</code> at this scale.</td></tr>
+<tr><td class="mono">sync.Pool</td><td>64 KB line-count buffers</td><td>The batch counter can open hundreds of files; without pooling that is hundreds of 64 KB allocations churning the heap in a burst.</td></tr>
+<tr><td class="mono">index-disjoint slice writes</td><td>dir results, file stat results</td><td>Distinct elements of a slice are distinct memory — concurrent writes to different indices need no synchronisation at all. Zero-cost "sharding".</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ---------- 8.2 ---------- -->
+<h3 id="semaphore">8.2 · Bounded fan-out: the semaphore pattern</h3>
+
+<p>The core of phase 3. Read it closely — the ordering of <code>wg.Add</code>, <code>go</code>, and the
+semaphore acquire is intentional. (The <a href="explore.html#scan">scan simulator</a> lets you watch this
+exact loop execute with adjustable core counts and work distributions.)</p>
+
+<figure class="code">
+<figcaption><span class="tag">scanner.go</span><span>parallel directory sizing</span></figcaption>
+<pre><code class="go">results := make([]dirResult, len(dirEntryIndices))
+var wg sync.WaitGroup
+sem := make(chan struct{}, minInt(runtime.NumCPU(), 16))
+
+for ri, di := range dirEntryIndices {
+	wg.Add(1)                                  // registered BEFORE the goroutine starts
+	go func(resultIdx int, info dirInfo2) {
+		defer wg.Done()
+		sem &lt;- struct{}{}                      // acquire — blocks when N are in flight
+		defer func() { &lt;-sem }()               // release
+
+		dirPath := filepath.Join(absPath, info.name)
+		size, files, dirs := dirSizeRecursive(dirPath, prog)
+		results[resultIdx] = dirResult{index: info.index, size: size,
+			childFiles: files, childDirs: dirs}
+	}(ri, di)                                  // params copied — no loop-variable capture
+}
+wg.Wait()                                      // join: all writes to results happen-before here
+
+for _, r := range results {
+	entries[r.index].Size = r.size
+	entries[r.index].ChildFiles = r.childFiles
+	entries[r.index].ChildDirs = r.childDirs
+	totalSize += r.size
+}
+</code></pre>
+</figure>
+
+<h4>Why the cap is <code>min(NumCPU, 16)</code></h4>
+
+<p>Directory sizing is <strong>I/O bound with a CPU-bound decoding component</strong>. Two ceilings apply:</p>
+<ul>
+  <li><code>NumCPU</code> — beyond that, additional goroutines only add scheduler churn for the parsing half of the work.</li>
+  <li><code>16</code> — a hard cap for large machines. On a 64-core box, 64 concurrent directory walks would thrash the page cache and, on spinning or network-backed storage, degrade badly through seek contention. Filesystems do not scale linearly with concurrent readers.</li>
+</ul>
+
+<h4>Why goroutines are spawned eagerly but gated inside</h4>
+
+<p>All N goroutines are created immediately; the semaphore is acquired <em>inside</em> the goroutine body.
+A goroutine parked on a channel send costs ~2 KB of stack and no CPU, so for the realistic case
+(tens to low hundreds of subdirectories) this is cheaper and far simpler than a worker-pool-with-job-channel.
+The pattern is: <strong>unbounded goroutines, bounded work</strong>.</p>
+
+<h4>Why the recursion does not fan out further</h4>
+
+<p><code>dirSizeRecursive</code> is plain recursion. If it spawned a goroutine per nested directory, a
+<code>node_modules</code> tree would create tens of thousands of goroutines, all queued on the same
+semaphore, with stack memory proportional to the tree size. Instead concurrency is applied at exactly
+one level — the widest, cheapest place to parallelise — and depth stays sequential.</p>
+
+<div class="note warn">
+  <span class="t">Load-balancing consequence</span>
+  <p>Work is partitioned by <em>top-level subdirectory</em>, so a directory containing one giant
+  <code>node_modules</code> and nine tiny folders gets no speedup: nine goroutines finish instantly and
+  one carries the whole scan. This is the accepted trade-off for avoiding recursive fan-out. A
+  work-stealing deque would fix it at a large complexity cost, and the progress counters keep the UI
+  informative in the meantime.</p>
+</div>
+
+<!-- ---------- 8.3 ---------- -->
+<h3 id="sliceshare">8.3 · Lock-free result collection</h3>
+
+<p>Notice what is <em>absent</em> from the snippet above: there is no mutex around <code>results</code>,
+and no channel collecting outputs. Each goroutine receives a unique <code>resultIdx</code> and writes
+only to <code>results[resultIdx]</code>.</p>
+
+<p>This is safe because the Go memory model treats distinct slice elements as distinct memory
+locations. Concurrent writes to different indices of the same slice are not a data race. The slice
+header itself is never mutated (no <code>append</code>), and <code>wg.Wait()</code> establishes the
+happens-before edge that makes the subsequent sequential read of every element well-defined.</p>
+
+<div class="split">
+<figure class="code" style="margin:0">
+<figcaption><span class="tag">chosen</span><span>index write · 0 sync</span></figcaption>
+<pre><code class="go">results[i] = dirResult{...}
+// … wg.Wait() …
+for _, r := range results { … }
+</code></pre>
+</figure>
+<figure class="code" style="margin:0">
+<figcaption><span class="tag">rejected</span><span>channel collect · N allocs + select</span></figcaption>
+<pre><code class="go">ch := make(chan dirResult, n)
+ch &lt;- dirResult{...}
+for r := range ch { … }   // + closer goroutine
+</code></pre>
+</figure>
+</div>
+
+<p>The same technique appears in phase 4 for parallel file stat, where results are collected into
+<code>[]FileEntry</code> by index and then appended to <code>entries</code> in order — which also makes the
+parallel and sequential paths produce byte-identical output.</p>
+
+<!-- ---------- 8.4 ---------- -->
+<h3 id="progress-sec">8.4 · Atomic progress counters</h3>
+
+<p>The scan is opaque by nature: you cannot know the total ahead of time without doing the scan.
+dirgo solves this by streaming counters out of the workers while they run.</p>
+
+<figure class="code">
+<figcaption><span class="tag">scanner.go</span><span>the shared progress block</span></figcaption>
+<pre><code class="go">// ScanProgress holds live progress counters updated by the scanner goroutines.
+// Read via atomic loads from the UI goroutine (spinner tick).
+type ScanProgress struct {
+	Files atomic.Int64
+	Dirs  atomic.Int64
+	Size  atomic.Int64
+}
+</code></pre>
+</figure>
+
+<figure class="code">
+<figcaption><span class="tag">model.go</span><span>sampling from the UI goroutine</span></figcaption>
+<pre><code class="go">case spinner.TickMsg:
+	if m.loading {
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		if m.scanProg != nil {
+			m.scanProgFiles = m.scanProg.Files.Load()   // lock-free read
+			m.scanProgDirs  = m.scanProg.Dirs.Load()
+			m.scanProgSize  = m.scanProg.Size.Load()
+		}
+		cmds = append(cmds, cmd)
+	}
+	return m, tea.Batch(cmds...)
+</code></pre>
+</figure>
+
+<p>This is a textbook <strong>multi-writer / single-reader telemetry</strong> arrangement:</p>
+
+<ul>
+  <li><strong>Writers</strong> — every goroutine in the phase-3 fan-out, calling <code>Add(1)</code> at leaf granularity, potentially millions of times.</li>
+  <li><strong>Reader</strong> — the UI goroutine, ~10 times per second.</li>
+  <li><strong>Consistency</strong> — the three counters are read independently, so a sample can show 1,000 files but a size that lags by a few entries. For a progress indicator this is invisible and irrelevant. Buying atomicity across all three (a mutex or a seqlock) would cost far more than the inconsistency does.</li>
+</ul>
+
+<p><code>atomic.Int64</code> (the Go 1.19+ struct type) is used rather than the free functions
+<code>atomic.AddInt64(&amp;x, 1)</code>. The struct form makes misuse impossible — you cannot accidentally
+read the field non-atomically — and it embeds <code>align64</code>, guaranteeing correct alignment on
+32-bit platforms where a misaligned 64-bit atomic would panic.</p>
+
+<h4>Lifecycle: how the pointer is retired safely</h4>
+
+<p>The model holds <code>scanProg *ScanProgress</code>. On <code>scanResultMsg</code> it does
+<code>m.scanProg = nil</code>. This looks dangerous — are workers still writing through that pointer? —
+but it is sound:</p>
+
+<ol>
+  <li>The command closure captured its own copy of the pointer when the scan started.</li>
+  <li><code>scanResultMsg</code> is only produced <em>after</em> <code>wg.Wait()</code>, so every writer has already returned.</li>
+  <li>Setting the model field to <code>nil</code> only drops the UI's reference; the object becomes garbage once the closure is done with it.</li>
+  <li>Each new scan allocates a fresh <code>&amp;ScanProgress{}</code>, so counters never need resetting and a late-finishing previous scan can never contaminate the new one's numbers.</li>
+</ol>
+
+<div class="note good">
+  <span class="t">Pattern worth stealing</span>
+  <p><strong>Allocate a fresh telemetry block per operation instead of resetting a shared one.</strong> It removes
+  an entire class of "whose counter is this?" bugs at the cost of one tiny allocation per scan.</p>
+</div>
+
+<!-- ---------- 8.5 ---------- -->
+<h3 id="mutexmap">8.5 · Mutex-guarded map: batch line counting</h3>
+
+<p>Pressing <kbd>s</kbd> counts lines in every visible text file. Here the output is keyed by filename
+rather than index, so a map is the natural container — and Go maps are not safe for concurrent
+writes.</p>
+
+<figure class="code">
+<figcaption><span class="tag">scanner.go</span><span>countAllLinesCmd</span></figcaption>
+<pre><code class="go">counts := make(map[string]int)
+var mu sync.Mutex
+var wg sync.WaitGroup
+sem := make(chan struct{}, runtime.NumCPU())
+
+for _, e := range entries {
+	if e.IsDir || e.IsBinary {
+		continue                        // filtered before spawning — no wasted goroutine
+	}
+	wg.Add(1)
+	go func(name string) {
+		defer wg.Done()
+		sem &lt;- struct{}{}
+		defer func() { &lt;-sem }()
+
+		lines, isBin, _ := countLines(filepath.Join(dir, name), 10*1024*1024)
+		if !isBin &amp;&amp; lines &gt; 0 {
+			mu.Lock()                   // critical section = one map assignment
+			counts[name] = lines
+			mu.Unlock()
+		}
+	}(e.Name)
+}
+wg.Wait()
+return batchLineCountMsg{Counts: counts}
+</code></pre>
+</figure>
+
+<p>The critical section is a single map store, held for nanoseconds, while the work outside it —
+opening a file and scanning up to 10 MB — takes microseconds to milliseconds. Contention is
+negligible, so a plain <code>sync.Mutex</code> beats <code>sync.Map</code> (which is optimised for
+read-mostly workloads and would be slower for this write-heavy burst) and beats per-goroutine maps
+with a merge step.</p>
+
+<p>Note the two filters that keep the pool efficient: directories and known-binary extensions are
+skipped <em>before</em> spawning, and <code>countLines</code> aborts on any file over 10 MB. A pathological
+directory cannot turn <kbd>s</kbd> into a multi-second freeze — and even if it did, it would freeze a
+worker, not the UI.</p>
+
+<!-- ---------- 8.6 ---------- -->
+<h3 id="pool">8.6 · Buffer pooling under burst load</h3>
+
+<figure class="code">
+<figcaption><span class="tag">utils.go</span><span>sync.Pool + chunked counting</span></figcaption>
+<pre><code class="go">var bufPool = sync.Pool{
+	New: func() interface{} { return make([]byte, 64*1024) },
+}
+
+func countLines(path string, maxSize int64) (int, bool, error) {
+	// … stat guards: skip dirs, empty files, and anything over maxSize …
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, false, err
+	}
+	defer f.Close()
+
+	buf := bufPool.Get().([]byte)
+	defer bufPool.Put(buf)
+
+	// First chunk doubles as the binary check — no seek, no second read.
+	n, err := f.Read(buf)
+	if n &gt; 0 &amp;&amp; isBinaryContent(buf[:n]) {
+		return 0, true, nil
+	}
+	count := 0
+	if n &gt; 0 {
+		count = bytes.Count(buf[:n], []byte{'\n'})
+	}
+	totalRead := int64(n)
+	for totalRead &lt; maxSize &amp;&amp; err == nil {
+		n, err = f.Read(buf)
+		if n &gt; 0 {
+			count += bytes.Count(buf[:n], []byte{'\n'})
+			totalRead += int64(n)
+		}
+	}
+	return count, false, nil
+}
+</code></pre>
+</figure>
+
+<p>Three compounding optimisations:</p>
+<ul>
+  <li><strong><code>sync.Pool</code></strong> — with <code>NumCPU</code> workers, at most <code>NumCPU</code> buffers exist at once, and they are recycled across hundreds of files. <code>sync.Pool</code> is per-P internally, so <code>Get</code>/<code>Put</code> are usually uncontended pointer swaps.</li>
+  <li><strong><code>bytes.Count</code> over <code>bufio.Scanner</code></strong> — counting newlines needs no line materialisation. <code>bytes.Count</code> is SIMD-accelerated on amd64/arm64; a <code>Scanner</code> would allocate and copy every line.</li>
+  <li><strong>Binary detection fused into the first read</strong> — a NUL byte in the first 512 bytes (the same heuristic HTTP content sniffing uses) marks the file binary, and the function returns immediately without reading the rest.</li>
+</ul>
+
+<!-- ---------- 8.7 ---------- -->
+<h3 id="subprocess">8.7 · Subprocesses: reaping and terminal hand-off</h3>
+
+<p>dirgo shells out for four things: opening files, Quick Look previews, moving to trash, and hex
+dumps. Two distinct concurrency concerns arise.</p>
+
+<h4>Fire-and-forget, but never zombies</h4>
+
+<figure class="code">
+<figcaption><span class="tag">model.go</span><span>openPath</span></figcaption>
+<pre><code class="go">cmd.Stdout = nil
+cmd.Stderr = nil
+if err := cmd.Start(); err == nil {
+	go cmd.Wait() // reap the child process to avoid zombies
+}
+</code></pre>
+</figure>
+
+<p><code>Start()</code> without a matching <code>Wait()</code> leaves a zombie entry in the process table for
+the lifetime of dirgo, plus leaked file descriptors and an <code>os/exec</code> bookkeeping goroutine.
+Since dirgo must not block waiting for a GUI app that might stay open for hours, the reaping
+<code>Wait()</code> is moved into a throwaway goroutine. It is one line, and it is the difference
+between a clean process table and a slow leak in a long-lived session.</p>
+
+<h4>Handing the terminal over, and taking it back</h4>
+
+<figure class="code">
+<figcaption><span class="tag">model.go</span><span>hex view via tea.ExecProcess</span></figcaption>
+<pre><code class="go">shellCmd := fmt.Sprintf("%s %q | %s", hexCmd, targetPath, pager) // xxd file | less
+c = exec.Command("sh", "-c", shellCmd)
+
+return m, tea.ExecProcess(c, func(err error) tea.Msg {
+	if err != nil {
+		return scanErrorMsg{err: fmt.Errorf("hex view failed: %w", err)}
+	}
+	return nil
+})
+</code></pre>
+</figure>
+
+<p><code>tea.ExecProcess</code> is the one place where the runtime deliberately <em>pauses</em> the event
+loop: it releases raw mode, restores the terminal, runs the child in the foreground with inherited
+stdio, and on exit re-enters the alt screen, re-enables raw mode, forces a full repaint, and
+delivers the callback's message. Running <code>less</code> with a naive <code>cmd.Run()</code> instead
+would fight the TUI for the terminal and corrupt the display.</p>
+
+<!-- ---------- 8.8 ---------- -->
+<h3 id="racesafety">8.8 · Race-safety analysis</h3>
+
+<p>A useful way to audit a Go program: enumerate every piece of memory reachable by more than one
+goroutine, and name its protection.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>Shared state</th><th>Writers</th><th>Readers</th><th>Protection</th></tr></thead>
+<tbody>
+<tr><td class="mono">Model (all fields)</td><td>UI goroutine</td><td>UI goroutine</td><td><span class="pill ok">none needed</span> value receiver + serial message delivery</td></tr>
+<tr><td class="mono">results[i] (scan)</td><td>N workers, disjoint indices</td><td>parent, after join</td><td><span class="pill ok">none needed</span> disjoint memory + <code>WaitGroup</code> edge</td></tr>
+<tr><td class="mono">ScanProgress</td><td>N workers</td><td>UI goroutine</td><td><span class="pill cool">atomic.Int64</span></td></tr>
+<tr><td class="mono">counts map</td><td>N workers</td><td>parent, after join</td><td><span class="pill cool">sync.Mutex</span></td></tr>
+<tr><td class="mono">lruCache</td><td>UI goroutine only <em>today</em></td><td>UI goroutine</td><td><span class="pill cool">sync.Mutex</span> — defensive, keeps future off-thread use safe</td></tr>
+<tr><td class="mono">bufPool</td><td>N workers</td><td>N workers</td><td><span class="pill cool">sync.Pool</span> (internally per-P)</td></tr>
+<tr><td class="mono">Lipgloss style vars</td><td>init only</td><td>UI goroutine</td><td><span class="pill ok">immutable after init</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The test suite runs under the race detector by default, so violations of this table fail CI rather
+than surfacing as heisenbugs:</p>
+
+<figure class="code">
+<figcaption><span class="tag">Makefile</span><span>race detection is the default, not an option</span></figcaption>
+<pre><code class="bash">test:
+	go test -race -v ./...
+</code></pre>
+</figure>
+
+<h4>A closure detail that is easy to get wrong</h4>
+
+<p>Every fan-out in dirgo passes loop variables as goroutine <em>parameters</em>
+(<code>}(ri, di)</code>, <code>}(idx, de)</code>, <code>}(e.Name)</code>) rather than capturing them.
+Go 1.22 changed loop-variable scoping to make capture safe, and this module targets Go 1.25 — but
+passing explicitly documents the ownership transfer and keeps the code correct if it is ever copied
+into an older codebase.</p>
+
+<!-- ---------- 8.9 ---------- -->
+<h3 id="tuning">8.9 · Tuning: where the thresholds come from</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>Constant</th><th class="mono">Value</th><th>Reasoning</th></tr></thead>
+<tbody>
+<tr><td>Directory-sizing concurrency</td><td class="mono">min(NumCPU, 16)</td><td>Balances core count against filesystem seek contention; the hard cap protects large-core machines from thrashing storage.</td></tr>
+<tr><td>File-stat concurrency</td><td class="mono">NumCPU</td><td><code>stat</code> is short and cache-friendly; no benefit from oversubscription.</td></tr>
+<tr><td>Parallel-stat threshold</td><td class="mono">&gt; 20 files</td><td>Below this, goroutine creation + <code>WaitGroup</code> + semaphore overhead exceeds the syscall cost. dirgo keeps a literal sequential fallback branch for the small case.</td></tr>
+<tr><td>Line-count concurrency</td><td class="mono">NumCPU</td><td>Mixed I/O and SIMD scanning; core count is the right ceiling.</td></tr>
+<tr><td>Line-count size limit</td><td class="mono">10 MB</td><td>Bounds worst-case time per file. Larger files simply report no count.</td></tr>
+<tr><td>Read buffer</td><td class="mono">64 KB</td><td>Comfortably above typical filesystem block/readahead sizes; large enough that syscall overhead is amortised, small enough to pool cheaply.</td></tr>
+<tr><td>Binary sniff window</td><td class="mono">512 bytes</td><td>Matches the HTTP content-sniffing convention; a NUL in the first block is a reliable binary signal.</td></tr>
+<tr><td>LRU capacity</td><td class="mono">100 dirs</td><td>Deep navigation sessions stay fully cached while memory remains bounded.</td></tr>
+<tr><td>Cursor history</td><td class="mono">500 paths</td><td>Prevents unbounded map growth; eviction exploits Go's randomised map iteration to drop an arbitrary key in O(1).</td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>The sequential fallback, verbatim</h4>
+
+<figure class="code">
+<figcaption><span class="tag">scanner.go</span><span>concurrency is opt-in, by size</span></figcaption>
+<pre><code class="go">if len(fileEntries) &gt; 20 {
+	// … parallel stat with WaitGroup + semaphore …
+} else {
+	for _, de := range fileEntries {
+		// … plain sequential stat …
+	}
+}
+</code></pre>
+</figure>
+
+<div class="note">
+  <span class="t">Principle</span>
+  <p>Duplicating a small loop to avoid parallelism overhead on small inputs is not premature
+  optimisation — it is recognising that <strong>parallelism has a fixed cost</strong>, and that most
+  directories on a real machine are small.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="cache"><span class="hash">09</span>Cache &amp; smart refresh</h2>
+
+<h3>The LRU</h3>
+
+<p>A classic intrusive LRU: a doubly linked list for recency order, a map for O(1) lookup, one mutex
+for both.</p>
+
+<figure class="code">
+<figcaption><span class="tag">cache.go</span></figcaption>
+<pre><code class="go">type lruCache struct {
+	maxEntries int
+	ll         *list.List               // front = most recently used
+	items      map[string]*list.Element // path → node
+	mu         sync.Mutex
+}
+
+func (c *lruCache) Get(key string) (scanResultMsg, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.items[key]; ok {
+		c.ll.MoveToFront(el)             // O(1) pointer surgery, no reallocation
+		return el.Value.(*cacheItem).value, true
+	}
+	return scanResultMsg{}, false
+}
+</code></pre>
+</figure>
+
+<p>Cached values are whole <code>scanResultMsg</code> structs — which means a cache hit needs no
+recomputation at all. <code>Get</code> mutates recency, hence a full <code>Lock</code> rather than an
+<code>RWMutex</code>: an <code>RWMutex</code> would be strictly worse here because every read is also a write.</p>
+
+<p>The cache is currently only touched from the UI goroutine, so the mutex is defensive. It costs an
+uncontended atomic compare-and-swap per access — nothing measurable — and it means moving cache
+warming into a background command later cannot introduce a race.</p>
+
+<h4>Write-back on lazy fields</h4>
+
+<p>Line counts arrive after the scan, so they must be written into all three places the data lives —
+<code>entries</code>, <code>filtered</code>, and the cached snapshot — or navigating away and back would
+lose them:</p>
+
+<figure class="code">
+<figcaption><span class="tag">model.go</span><span>lineCountMsg write-back</span></figcaption>
+<pre><code class="go">if cached, ok := m.cache.Get(m.path); ok {
+	for i := range cached.entries {
+		if cached.entries[i].Name == msg.name {
+			cached.entries[i].LineCount = msg.lines
+			m.cache.Put(m.path, cached)
+			break
+		}
+	}
+}
+</code></pre>
+</figure>
+
+<h3>Smart refresh</h3>
+
+<p>Pressing <kbd>r</kbd> does not blindly rescan. It first compares the directory's modtime against the
+cached value:</p>
+
+<figure class="code">
+<figcaption><span class="tag">scanner.go</span><span>one stat instead of a full walk</span></figcaption>
+<pre><code class="go">func smartRefreshCmd(path string, cached scanResultMsg, prog *ScanProgress) tea.Cmd {
+	return func() tea.Msg {
+		info, err := os.Stat(path)
+		if err != nil {
+			return scanDirectory(path, prog)()      // stat failed → full scan
+		}
+		if info.ModTime().Equal(cached.dirModTime) {
+			return scanUpToDateMsg{path: path}      // ~microseconds, zero repaint churn
+		}
+		return scanDirectory(path, prog)()          // changed → full rescan
+	}
+}
+</code></pre>
+</figure>
+
+<div class="note warn">
+  <span class="t">Known limitation</span>
+  <p>A directory's mtime changes when entries are <em>added or removed</em>, not when a file inside it
+  merely grows. So refreshing after appending to a log file will report "up to date" even though the
+  size changed. This is a conscious trade: the check is essentially free and correct for the common
+  case (files created, deleted, renamed). Deletion via <kbd>d</kbd> sidesteps it entirely by
+  invalidating the cache entry directly.</p>
+</div>
+
+<h3>Deletion without rescanning</h3>
+
+<p>When <code>trashResultMsg</code> arrives, dirgo patches state in place rather than re-walking the
+directory: it removes the row, decrements the totals, recomputes every percentage against the new
+total, recomputes deep totals, re-applies the filter, clamps the cursor into range, and deletes the
+now-stale cache entry. A rescan would be correct but would cost seconds on a large tree and would
+scroll the user's position away.</p>
+
+<!-- ============================================================ -->
+<h2 id="linecount"><span class="hash">10</span>Line counting &amp; binary detection</h2>
+
+<p>Two paths, both flowing through the same <code>countLines</code> primitive from <a href="#pool">§8.6</a>:</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>Trigger</th><th>Scope</th><th>Concurrency</th><th>Guard</th></tr></thead>
+<tbody>
+<tr><td>Cursor moves onto a text file</td><td>one file</td><td>single command goroutine</td><td>Skipped entirely if the entry is a directory, has a binary extension, or already has a count — so scrolling fast does not queue redundant work.</td></tr>
+<tr><td><kbd>s</kbd> — count all</td><td>every visible text file</td><td><code>NumCPU</code> workers + mutex map</td><td>Directories and binary extensions filtered before spawn; 10 MB cap per file.</td></tr>
+</tbody>
+</table>
+</div>
+
+<figure class="code">
+<figcaption><span class="tag">model.go</span><span>the "don't queue redundant work" guard</span></figcaption>
+<pre><code class="go">func (m Model) lineCountForSelected() tea.Cmd {
+	if len(m.filtered) == 0 {
+		return nil
+	}
+	e := m.filtered[m.cursor]
+	if e.IsDir || e.IsBinary || e.LineCount &gt; 0 {
+		return nil            // returning a nil Cmd is a no-op for the runtime
+	}
+	return countLinesCmd(m.path, e.Name)
+}
+</code></pre>
+</figure>
+
+<p>Binary detection is deliberately two-tier: a free extension check
+(<code>isBinaryExt</code> covers ~45 extensions across images, media, archives, executables, documents,
+fonts, bytecode and databases) decides whether to bother opening the file at all, and a content
+check (NUL byte in the first 512 bytes) catches extensionless binaries once the file is open.</p>
+
+<!-- ============================================================ -->
+<h2 id="render"><span class="hash">11</span>Render pipeline</h2>
+
+<p><code>View()</code> rebuilds the entire screen as a single string on every message. Bubble Tea diffs
+that string against the previous frame and writes only what changed. This means <code>View</code> is
+extremely hot — potentially every keystroke, every spinner tick, every mouse wheel notch — so it is
+written to allocate as little as possible.</p>
+
+<h4>Only the visible window is rendered</h4>
+
+<figure class="code">
+<figcaption><span class="tag">model.go</span><span>windowed rendering</span></figcaption>
+<pre><code class="go">visibleEnd := minInt(m.offset+listHeight, len(m.filtered))
+for i := m.offset; i &lt; visibleEnd; i++ {
+	m.viewBuf.WriteString(renderRow(m, i, m.filtered[i], i == m.cursor))
+	m.viewBuf.WriteString("\n")
+}
+</code></pre>
+</figure>
+
+<p>A directory with 100,000 entries costs the same per frame as one with 40 — only <code>listHeight</code>
+rows are ever formatted.</p>
+
+<h4>The separator-cache trick</h4>
+
+<figure class="code">
+<figcaption><span class="tag">model.go</span><span>caching in Update because View cannot</span></figcaption>
+<pre><code class="go">case tea.WindowSizeMsg:
+	m.width = msg.Width
+	m.height = msg.Height
+	// Rebuild separator cache. View() has a value receiver, so anything it
+	// memoises is discarded — the cache must be built where mutation persists.
+	m.cachedSep = lipgloss.NewStyle().Foreground(colorDimmer).
+		Width(m.width).Render(strings.Repeat("─", m.width))
+	m.cachedSepWidth = m.width
+	return m, nil
+</code></pre>
+</figure>
+
+<p>This is a neat illustration of an MVU consequence: because <code>View</code> receives a copy,
+memoisation inside it is pointless. Derived values must be computed in <code>Update</code>, where the
+returned model carries them forward.</p>
+
+<h4>Row layout arithmetic</h4>
+
+<p>Each row is a fixed 36 columns of chrome plus two elastic columns:</p>
+
+<figure class="code">
+<figcaption><span class="tag">render.go</span><span>elastic bar and name widths</span></figcaption>
+<pre><code class="go">// pointer(2) + num(4) + sp + bar + sp + pct(6) + sp + sep(1) + sp + icon(2)
+//   + name + sp + size(9) + sp + meta(6)  ⇒ 36 fixed columns
+const fixedNonBar = 36
+barMaxWidth  := maxInt(6, minInt(28, (w-fixedNonBar-16)/3))
+nameMaxWidth := maxInt(8, w-fixedNonBar-barMaxWidth)
+</code></pre>
+</figure>
+
+<p>The bar takes up to a third of the leftover space (clamped to 6–28 columns) and the filename gets
+the rest, so the layout degrades gracefully from an 80-column terminal to an ultrawide one.</p>
+
+<h4>Allocation discipline</h4>
+
+<ul>
+  <li><strong>Reused <code>strings.Builder</code></strong> stored on the model, <code>Reset()</code> per frame — the backing array is allocated once and reused for the lifetime of the process.</li>
+  <li><strong>Package-level styles</strong> in <code>styles.go</code>, including a pre-built map of bar-colour styles, so no Lipgloss style is constructed per row.</li>
+  <li><strong><code>strconv</code> over <code>fmt.Sprintf</code></strong> in the row hot path — <code>Sprintf</code> allocates and reflects; <code>strconv.FormatFloat</code> does neither.</li>
+  <li><strong>Concatenation over <code>Sprintf</code></strong> when assembling row segments.</li>
+  <li><strong><code>b.Grow()</code></strong> in <code>barString</code>, sized for UTF-8 block characters (<code>█</code> is 3 bytes) so the builder never re-grows.</li>
+</ul>
+
+<h4>Unicode correctness</h4>
+
+<p>Column alignment uses <code>lipgloss.Width()</code>, not <code>len()</code> and not
+<code>len([]rune)</code>. A filename containing an emoji or CJK characters occupies two terminal cells
+per glyph; measuring in bytes or runes would shear the columns. <code>truncateStrVisual</code> and
+<code>padRightVisual</code> both binary-walk down to a candidate that fits the true visual width.</p>
+
+<!-- ============================================================ -->
+<h2 id="navigation"><span class="hash">12</span>Navigation &amp; modes</h2>
+
+<p>Key handling is a cascade of modal guards, evaluated in priority order. Each mode returns early, so
+lower-priority handlers cannot see the event.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 860 210" role="img" aria-label="Key handling mode cascade">
+  <rect x="16" y="80" width="118" height="50" rx="9" class="bx-a"/>
+  <text x="75" y="103" class="ttl" text-anchor="middle">tea.KeyMsg</text>
+  <text x="75" y="119" class="sm" text-anchor="middle">arrives</text>
+
+  <rect x="176" y="80" width="118" height="50" rx="9" class="bx-p"/>
+  <text x="235" y="103" class="ttl" text-anchor="middle">gotoMode?</text>
+  <text x="235" y="119" class="sm" text-anchor="middle">cd prompt</text>
+
+  <rect x="336" y="80" width="118" height="50" rx="9" class="bx-p"/>
+  <text x="395" y="103" class="ttl" text-anchor="middle">searchMode?</text>
+  <text x="395" y="119" class="sm" text-anchor="middle">filter as you type</text>
+
+  <rect x="496" y="80" width="118" height="50" rx="9" class="bx-p"/>
+  <text x="555" y="103" class="ttl" text-anchor="middle">helpMode?</text>
+  <text x="555" y="119" class="sm" text-anchor="middle">any key closes</text>
+
+  <rect x="656" y="80" width="188" height="50" rx="9" class="bx-g"/>
+  <text x="750" y="103" class="ttl" text-anchor="middle">normal KeyMap match</text>
+  <text x="750" y="119" class="sm" text-anchor="middle">nav · filters · actions</text>
+
+  <path d="M134 105 H172" class="ln" marker-end="url(#ar3)"/>
+  <path d="M294 105 H332" class="ln" marker-end="url(#ar3)"/>
+  <path d="M454 105 H492" class="ln" marker-end="url(#ar3)"/>
+  <path d="M614 105 H652" class="ln" marker-end="url(#ar3)"/>
+
+  <path d="M235 80 V50" class="ln-a" marker-end="url(#ar3)"/>
+  <text x="235" y="40" class="sm" text-anchor="middle">consumed</text>
+  <path d="M395 80 V50" class="ln-a" marker-end="url(#ar3)"/>
+  <text x="395" y="40" class="sm" text-anchor="middle">consumed</text>
+  <path d="M555 80 V50" class="ln-a" marker-end="url(#ar3)"/>
+  <text x="555" y="40" class="sm" text-anchor="middle">consumed</text>
+  <text x="440" y="176" class="sm" text-anchor="middle">each guard returns early — no fallthrough, no ambiguity</text>
+
+  <defs>
+    <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" style="fill:#6b7b8f"/>
+    </marker>
+  </defs>
+</svg>
+</div>
+
+<h3>Cursor memory</h3>
+
+<p>Navigating into a directory and back out restores your position. Two mechanisms cooperate:</p>
+
+<ul>
+  <li><code>cursorHistory map[string]string</code> — path → last selected entry name, capped at 500 with O(1) arbitrary eviction.</li>
+  <li><code>pendingCursorEntry</code> — because a scan is asynchronous, the restore target is stashed on the model and applied when <code>scanResultMsg</code> lands. On a cache hit the restore happens immediately instead.</li>
+</ul>
+
+<p>Names are stored rather than indices, so the cursor lands on the right <em>entry</em> even if sizes
+changed and the sort order shifted.</p>
+
+<h3>Navigation entry points</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th class="mono">Function</th><th>Trigger</th><th>Behaviour</th></tr></thead>
+<tbody>
+<tr><td class="mono">navigateIn</td><td><kbd>→</kbd> <kbd>l</kbd> <kbd>Enter</kbd></td><td>Directory → descend (cache hit renders instantly, marked <code>⚡cached</code>). File → open with the OS default handler, unless it is a binary over 100 MB, which is refused with a pointer to hex view.</td></tr>
+<tr><td class="mono">navigateUp</td><td><kbd>←</kbd> <kbd>Backspace</kbd></td><td>Ascends to the parent and highlights the directory you came from. No-op at filesystem root.</td></tr>
+<tr><td class="mono">navigateTo</td><td><kbd>c</kbd></td><td>Free-form path entry: expands <code>~</code>, resolves relative paths against the current directory, <code>filepath.Clean</code>s, then validates with <code>os.Stat</code> before committing.</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="keys"><span class="hash">13</span>Keybindings</h2>
+
+<p>All bindings live in one <code>KeyMap</code> struct built by <code>DefaultKeyMap()</code>. Each carries
+its keys and its help text together, so the footer, the help overlay, and the actual behaviour are
+driven from a single source.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th class="mono">Key</th><th>Action</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td class="mono">↑ / k · ↓ / j</td><td>Move cursor</td><td>Triggers a lazy line count for the newly selected file</td></tr>
+<tr><td class="mono">wheel</td><td>Scroll</td><td>3 rows per notch</td></tr>
+<tr><td class="mono">PgUp / ^U · PgDn / ^D</td><td>Page</td><td>Page size derives from terminal height</td></tr>
+<tr><td class="mono">g · G</td><td>Top / bottom</td><td></td></tr>
+<tr><td class="mono">→ / l / Enter</td><td>Open</td><td>Descend into dir, or open file with OS handler</td></tr>
+<tr><td class="mono">← / Backspace</td><td>Parent</td><td>Restores previous cursor position</td></tr>
+<tr><td class="mono">Space</td><td>Quick Look</td><td><code>qlmanage</code> · <code>xdg-open</code> · <code>start</code></td></tr>
+<tr><td class="mono">r</td><td>Smart refresh</td><td>modtime probe first</td></tr>
+<tr><td class="mono">t</td><td>Top-10 view</td><td>Clamps <code>filtered</code> to 10 rows</td></tr>
+<tr><td class="mono">o</td><td>Reveal in file manager</td><td></td></tr>
+<tr><td class="mono">/</td><td>Fuzzy search</td><td>Subsequence match, live</td></tr>
+<tr><td class="mono">c</td><td>cd to path</td><td><code>~</code> expansion + validation</td></tr>
+<tr><td class="mono">h</td><td>Toggle hidden</td><td>On by default</td></tr>
+<tr><td class="mono">f</td><td>Cycle filter</td><td>all → dirs → files</td></tr>
+<tr><td class="mono">s</td><td>Count all lines</td><td>Parallel worker pool</td></tr>
+<tr><td class="mono">x</td><td>Hex view</td><td><code>xxd</code>/<code>hexdump</code> piped to <code>$PAGER</code>; 50 MB cap</td></tr>
+<tr><td class="mono">d</td><td>Move to trash</td><td>Recoverable — never <code>unlink</code></td></tr>
+<tr><td class="mono">?</td><td>Help overlay</td><td></td></tr>
+<tr><td class="mono">Esc</td><td>Cancel</td><td>Exits search / help / top-10</td></tr>
+<tr><td class="mono">q / ^C</td><td>Quit</td><td></td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="perf"><span class="hash">14</span>Performance techniques, consolidated</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>Technique</th><th>Location</th><th>Payoff</th></tr></thead>
+<tbody>
+<tr><td><code>os.ReadDir</code> + manual recursion</td><td>scanner</td><td>One <code>getdirentries</code> per directory instead of <code>WalkDir</code>'s per-entry <code>lstat</code>; <code>Info()</code> is called on files only.</td></tr>
+<tr><td>Bounded parallel recursion</td><td>scanner</td><td>Near-linear speedup on multi-core machines without saturating the I/O queue.</td></tr>
+<tr><td>Adaptive parallelism (&gt;20 files)</td><td>scanner</td><td>Avoids paying goroutine overhead on small directories.</td></tr>
+<tr><td>Index-disjoint result writes</td><td>scanner</td><td>Zero synchronisation on the collection path.</td></tr>
+<tr><td>Atomic progress counters</td><td>scanner ↔ model</td><td>Live feedback at effectively zero cost to the workers.</td></tr>
+<tr><td>LRU of full scan results</td><td>cache</td><td>Re-navigation is instant and allocation-free.</td></tr>
+<tr><td>Modtime-gated refresh</td><td>scanner</td><td>Turns a full walk into a single <code>stat</code> when nothing changed.</td></tr>
+<tr><td>In-place delete patching</td><td>model</td><td>Avoids a full rescan after <kbd>d</kbd>.</td></tr>
+<tr><td>Slice reuse (<code>filtered[:0]</code>)</td><td>model / entry</td><td>No allocation per keystroke while searching.</td></tr>
+<tr><td>Persistent <code>strings.Builder</code></td><td>model</td><td>One backing buffer for the whole session.</td></tr>
+<tr><td>Pre-built Lipgloss styles</td><td>styles / render</td><td>No style construction per row.</td></tr>
+<tr><td><code>strconv</code> + concatenation</td><td>render</td><td>Removes <code>fmt</code> reflection and allocation from the hot row path.</td></tr>
+<tr><td><code>sync.Pool</code> read buffers</td><td>utils</td><td>Bounded memory during batch line counting.</td></tr>
+<tr><td><code>bytes.Count</code> newline scan</td><td>utils</td><td>SIMD-accelerated; no line materialisation.</td></tr>
+<tr><td>Windowed row rendering</td><td>model</td><td>Frame cost is independent of directory size.</td></tr>
+<tr><td>ASCII-only <code>toLower</code></td><td>entry</td><td>Allocation-free fuzzy matching per keystroke.</td></tr>
+<tr><td>Built-in <code>--profile</code></td><td>main</td><td>CPU profile of a real session, not just a benchmark.</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="security"><span class="hash">15</span>Safety &amp; hardening</h2>
+
+<p>dirgo executes external commands with user-controlled filenames, which is exactly where TUI tools
+tend to get command injection wrong.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>Risk</th><th>Mitigation</th></tr></thead>
+<tbody>
+<tr><td>AppleScript injection via filename (macOS trash)</td><td>Backslashes and double quotes are escaped before interpolation into the <code>osascript</code> string.</td></tr>
+<tr><td>PowerShell injection (Windows trash)</td><td>Single quotes are doubled per PowerShell literal-string escaping rules.</td></tr>
+<tr><td>Shell injection in hex view</td><td>The path is interpolated with <code>%q</code>, producing a quoted, escaped Go string literal that the shell parses safely.</td></tr>
+<tr><td>Direct <code>exec</code> paths</td><td><code>open</code>, <code>xdg-open</code>, <code>gio</code>, <code>qlmanage</code> are invoked via <code>exec.Command</code> with the path as a discrete <code>argv</code> element — no shell involved, so no quoting concerns at all.</td></tr>
+<tr><td>Irreversible deletion</td><td><kbd>d</kbd> moves to the system trash. macOS delegates to Finder; Linux tries <code>gio trash</code>, then <code>trash-put</code>, then a hand-rolled XDG Trash implementation with <code>.trashinfo</code> metadata, collision suffixes, and a cross-device copy+remove fallback; Windows uses the VisualBasic <code>FileSystem</code> recycle-bin API.</td></tr>
+<tr><td>Freezing on huge files</td><td>Layered caps: 100 MB for opening binaries, 50 MB for hex view, 10 MB for line counting.</td></tr>
+<tr><td>Unreadable subtrees</td><td>Errors from <code>ReadDir</code>/<code>Info</code> are absorbed; the scan always completes.</td></tr>
+<tr><td>Unbounded memory growth</td><td>Both long-lived maps are capped: LRU at 100, cursor history at 500.</td></tr>
+</tbody>
+</table>
+</div>
+
+<figure class="code">
+<figcaption><span class="tag">model.go</span><span>escaping before AppleScript interpolation</span></figcaption>
+<pre><code class="go">// Escape backslashes and double quotes to prevent injection.
+escaped := strings.ReplaceAll(path, `\`, `\\`)
+escaped  = strings.ReplaceAll(escaped, `"`, `\"`)
+script  := fmt.Sprintf(`tell application "Finder" to delete POSIX file "%s"`, escaped)
+</code></pre>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="build"><span class="hash">16</span>Build, test, ship</h2>
+
+<figure class="code">
+<figcaption><span class="tag">Makefile</span><span>the whole workflow</span></figcaption>
+<pre><code class="bash">make build          # go build with -s -w and version injected via -ldflags
+make test           # go test -race -v ./...   (race detector always on)
+make bench          # go test -bench=. -benchmem ./...
+make profile-cpu    # benchmark → cpu.prof → pprof web UI on :8080
+make profile-mem    # benchmark → mem.prof → pprof web UI on :8080
+make release        # cross-compile darwin/linux (amd64+arm64) and windows/amd64
+</code></pre>
+</figure>
+
+<p>The version string is compiled in rather than hardcoded:</p>
+
+<figure class="code">
+<figcaption><span class="tag">Makefile / main.go</span></figcaption>
+<pre><code class="bash">LDFLAGS = -ldflags="-s -w -X main.version=$(VERSION)"
+</code></pre>
+</figure>
+
+<p><code>-s -w</code> strip the symbol table and DWARF data for a smaller binary;
+<code>-X main.version</code> overwrites the <code>var version = "dev"</code> package variable at link time.</p>
+
+<h4>Runtime profiling</h4>
+
+<p><code>dirgo --profile /some/path</code> wraps the entire interactive session in
+<code>pprof.StartCPUProfile</code> and writes <code>cpu.prof</code> on exit. This profiles the real
+workload — scanning, rendering, and input handling together — rather than a synthetic benchmark, and
+is the right tool for investigating goroutine scheduling and syscall behaviour under actual use.</p>
+
+<h4>Test surface</h4>
+
+<p>Four test files cover the pieces that are pure enough to assert on:
+<code>cache_test.go</code> (LRU semantics and eviction), <code>scanner_test.go</code> (scan correctness
+and benchmarks), <code>render_test.go</code> (layout arithmetic), <code>utils_test.go</code>
+(formatting, truncation, line counting). Running under <code>-race</code> means the concurrency
+patterns in <a href="#concurrency">§8</a> are continuously validated by the scanner tests.</p>
+
+<h4>Distribution matrix</h4>
+
+<div class="tw">
+<table>
+<thead><tr><th>Channel</th><th>Mechanism</th></tr></thead>
+<tbody>
+<tr><td class="mono">go install</td><td>Standard module install from source.</td></tr>
+<tr><td class="mono">brew</td><td>Custom tap pointing at released binaries.</td></tr>
+<tr><td class="mono">pip / uv</td><td><code>dirgo_python</code> resolves <code>platform.system()</code> + <code>platform.machine()</code> to a release asset, downloads and extracts it on first run into a package-local <code>_bin/</code>, sets the executable bit, and forwards <code>argv</code>.</td></tr>
+<tr><td class="mono">GitHub Releases</td><td>Five prebuilt targets produced by <code>make release</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="caveats"><span class="hash">17</span>Trade-offs &amp; caveats</h2>
+
+<p>Honest accounting of where the current design gives something up.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>Area</th><th>Current behaviour</th><th>Consequence / possible direction</th></tr></thead>
+<tbody>
+<tr><td><strong>Scan cancellation</strong></td><td>Commands take no <code>context.Context</code>. Navigating away mid-scan leaves the old scan running to completion.</td><td>Wasted work, and a late <code>scanResultMsg</code> sets <code>m.path = msg.path</code> — so a slow scan can pull the view back to a directory you already left. A generation counter on the model, or a <code>context.WithCancel</code> stored per scan, would fix both.</td></tr>
+<tr><td><strong>Uneven work distribution</strong></td><td>Parallelism is one goroutine per top-level subdirectory.</td><td>A single dominant subtree gets no parallelism at all. Recursive fan-out with a shared semaphore, or a work-stealing queue, would balance it — at meaningful complexity cost.</td></tr>
+<tr><td><strong>mtime-only change detection</strong></td><td>Smart refresh compares directory mtime.</td><td>Growth of an existing file inside the directory is missed. Hashing the entry list or comparing aggregate size would catch more, for more cost.</td></tr>
+<tr><td><strong>Hard links &amp; sparse files</strong></td><td>Sizes come from <code>Info().Size()</code>.</td><td>Hard-linked files are counted once per link and sparse files report apparent rather than allocated size. Reading <code>st_blocks</code> via <code>syscall.Stat_t</code> would give true on-disk usage, at the price of platform-specific code.</td></tr>
+<tr><td><strong>Symlink loops</strong></td><td>Only immediate symlinks are resolved to decide dir-ness; recursion follows real directories.</td><td>Adequate in practice, but a directory symlink cycle within a scanned subtree could in principle be traversed repeatedly. A visited-inode set would make it airtight.</td></tr>
+<tr><td><strong>No disk-persisted cache</strong></td><td>Cache lives only for the session.</td><td>A deliberate simplicity choice, documented in the README: gob persistence was considered and dropped to keep behaviour deterministic and avoid stale-state bugs across sessions.</td></tr>
+<tr><td><strong>Single sort order</strong></td><td>Always size-descending.</td><td>Sorting by name, mtime, or line count would need a sort-mode field and a keybinding, but no architectural change.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note good">
+  <span class="t">Takeaway</span>
+  <p>The reason dirgo stays fast is not any single trick — it is the discipline of keeping
+  <strong>one goroutine authoritative over state</strong>, pushing every unbounded operation behind a
+  message boundary, and bounding <em>every</em> resource: goroutine concurrency, cache size, map growth,
+  file sizes, and per-frame work. Concurrency is used where it pays, and deliberately declined where
+  it does not.</p>
+</div>
+
+<footer class="end">
+  Generated architecture documentation for <strong>dirgo</strong> ·
+  reflects the source in <code>main.go</code>, <code>model.go</code>, <code>scanner.go</code>,
+  <code>cache.go</code>, <code>entry.go</code>, <code>render.go</code>, <code>styles.go</code>,
+  <code>keys.go</code>, <code>utils.go</code>.
+</footer>
+
+</div>
+</main>
+</div>
+
+<button id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- Go syntax highlighting ---------- */
+  var KW = "func|go|defer|var|const|type|struct|interface|chan|select|case|switch|default|" +
+           "if|else|for|range|return|package|import|map|make|new|nil|true|false|break|continue|goto|fallthrough";
+  var RX = new RegExp(
+    "(\\/\\/[^\\n]*)" +                             // 1 comment
+    "|(`[^`]*`|\"(?:[^\"\\\\\\n]|\\\\.)*\")" +      // 2 string
+    "|\\b(" + KW + ")\\b" +                         // 3 keyword
+    "|\\b(0[xX][0-9a-fA-F]+|\\d+(?:\\.\\d+)?)\\b" + // 4 number
+    "|\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\()",          // 5 call
+    "g"
+  );
+
+  function esc(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function highlight(src) {
+    var out = "", last = 0, m;
+    RX.lastIndex = 0;
+    while ((m = RX.exec(src)) !== null) {
+      out += esc(src.slice(last, m.index));
+      if (m[1])      out += '<span class="c">' + esc(m[1]) + "</span>";
+      else if (m[2]) out += '<span class="s">' + esc(m[2]) + "</span>";
+      else if (m[3]) out += '<span class="k">' + esc(m[3]) + "</span>";
+      else if (m[4]) out += '<span class="n">' + esc(m[4]) + "</span>";
+      else if (m[5]) out += '<span class="f">' + esc(m[5]) + "</span>";
+      last = m.index + m[0].length;
+    }
+    return out + esc(src.slice(last));
+  }
+
+  document.querySelectorAll("code.go").forEach(function (el) {
+    el.innerHTML = highlight(el.textContent);
+  });
+
+  /* ---------- copy buttons ---------- */
+  document.querySelectorAll("figure.code").forEach(function (fig) {
+    var cap = fig.querySelector("figcaption");
+    var code = fig.querySelector("code");
+    if (!cap || !code) return;
+    var btn = document.createElement("button");
+    btn.className = "copy";
+    btn.type = "button";
+    btn.textContent = "copy";
+    btn.addEventListener("click", function () {
+      navigator.clipboard.writeText(code.textContent).then(function () {
+        btn.textContent = "copied";
+        setTimeout(function () { btn.textContent = "copy"; }, 1400);
+      });
+    });
+    cap.appendChild(btn);
+  });
+
+  /* ---------- scrollspy ---------- */
+  var links = Array.prototype.slice.call(document.querySelectorAll("nav.toc a"));
+  var targets = links
+    .map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); })
+    .filter(Boolean);
+
+  function spy() {
+    var best = null, bestTop = -Infinity;
+    targets.forEach(function (t) {
+      var top = t.getBoundingClientRect().top - 120;
+      if (top <= 0 && top > bestTop) { bestTop = top; best = t; }
+    });
+    links.forEach(function (a) {
+      a.classList.toggle("active", best && a.getAttribute("href") === "#" + best.id);
+    });
+  }
+
+  /* ---------- reading progress ---------- */
+  var bar = document.getElementById("progress");
+  function prog() {
+    var h = document.documentElement;
+    var max = h.scrollHeight - h.clientHeight;
+    bar.style.width = (max > 0 ? (h.scrollTop / max) * 100 : 0) + "%";
+  }
+
+  var ticking = false;
+  window.addEventListener("scroll", function () {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function () { spy(); prog(); ticking = false; });
+  }, { passive: true });
+  spy(); prog();
+
+  /* ---------- theme toggle ---------- */
+  var root = document.documentElement;
+  var saved = null;
+  try { saved = localStorage.getItem("dirgo-doc-theme"); } catch (e) {}
+  if (saved) root.setAttribute("data-theme", saved);
+  document.getElementById("themeBtn").addEventListener("click", function () {
+    var next = root.getAttribute("data-theme") === "light" ? "dark" : "light";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("dirgo-doc-theme", next); } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>

@@ -39,7 +39,7 @@ make profile-mem   # Memory profiling
 | `main.go` | Entry point, flags, Bubble Tea setup |
 | `model.go` | App state, Update loop, message handling |
 | `scanner.go` | Directory scanning, parallel stat |
-| `cache.go` | LRU cache with disk persistence |
+| `cache.go` | Bounded in-memory LRU cache |
 | `entry.go` | FileEntry model, sorting, filtering |
 | `render.go` | Row rendering, header/footer, help |
 | `keys.go` | Key bindings |

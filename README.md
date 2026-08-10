@@ -14,7 +14,7 @@ A fast, minimal and interactive terminal directory analyzer built with Go and [B
 - **Proportional size bars** — color-coded percentage bars for quick visual scanning
 - **Efficient directory scanning** — uses `os.ReadDir` + manual recursion to minimize syscalls; parallel stat with bounded concurrency
 - **Smart refresh** — checks directory modtime before rescanning; skips unchanged directories
-- **LRU cache** — bounded in-memory cache (100 entries) with disk persistence across sessions (respects `XDG_CACHE_HOME`)
+- **LRU cache** — bounded in-memory cache (100 entries) for instant back-navigation within a session
 - **Line counting** — automatic line count for the selected text file; batch count all with `s`
 - **Hex view** — built-in hex dump for binary files (`xxd` on macOS, `hexdump` fallback on Linux)
 - **Large file protection** — prevents accidentally opening very large blob files
@@ -57,8 +57,6 @@ brew tap mohsinkaleem/tap
 brew install dirgo
 ```
 
-For maintainers, release + tap publishing steps are documented in [docs/release-and-homebrew.md](docs/release-and-homebrew.md).
-
 ## Usage
 
 ```bash
@@ -83,7 +81,7 @@ dirgo --profile /path/to/dir
 | `↓` / `j` | Move cursor down |
 | `←` / `Backspace` | Go to parent directory |
 | `→` / `l` / `Enter` | Open selected directory / file |
-| `Space` | Quick Look preview (macOS `qlmanage`, Linux `xdg-open`, Windows `start`) |
+| `Space` | Quick Look preview (macOS `qlmanage`, Linux `xdg-open`, Windows `explorer`) |
 | `g` | Jump to top |
 | `G` | Jump to bottom |
 | `PgUp` / `Ctrl+U` | Page up |
@@ -92,7 +90,7 @@ dirgo --profile /path/to/dir
 | `t` | Toggle top 10 view |
 | `o` | Open in Finder / file manager |
 | `/` | Search / filter |
-| `Esc` | Cancel search / close help |
+| `Esc` | Clear search filter / exit top 10 / close help |
 | `h` | Toggle hidden files |
 | `f` | Cycle filter (all → dirs only → files only) |
 | `s` | Count lines for all files |
@@ -104,11 +102,15 @@ dirgo --profile /path/to/dir
 
 ## Architecture
 
+For a full walkthrough of the design — component breakdown, message flow, the scanning pipeline, and a deep dive on the concurrency model — see [docs/architecture.html](docs/architecture.html).
+
+Prefer to learn by doing? [docs/explore.html](docs/explore.html) is an interactive tour: drive a working replica of the TUI in your browser, step through the message loop one frame at a time, and run the concurrent scanner with adjustable core counts.
+
 ```
 main.go        Entry point, --profile/--version flags, Bubble Tea program setup
 model.go       Application state, Update loop, message handling
 scanner.go     Directory scanning with os.ReadDir + manual recursion, bounded concurrency
-cache.go       LRU cache with bounded eviction + gob disk persistence (XDG-aware)
+cache.go       Bounded in-memory LRU cache with eviction
 entry.go       FileEntry data model, sorting, filtering, fuzzy match
 render.go      Row rendering, header/footer, help overlay
 keys.go        Key bindings

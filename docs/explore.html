@@ -1,0 +1,1735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>dirgo — Interactive Tour</title>
+<style>
+:root{
+  --bg:#0b0f14; --bg-2:#0f151d; --bg-3:#141c26; --panel:#111922;
+  --line:#1e2937; --line-2:#26313f;
+  --fg:#d7e0ea; --fg-dim:#8ea0b5; --fg-dimmer:#63748a;
+  --accent:#51d0f0; --accent-2:#7c9cf5;
+  --green:#5fd08a; --yellow:#f2c94c; --orange:#f2994a; --red:#eb5757; --purple:#b98cf0;
+  --radius:12px;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+html[data-theme="light"]{
+  --bg:#fbfcfe; --bg-2:#f2f5f9; --bg-3:#e8edf4; --panel:#ffffff;
+  --line:#dfe6ef; --line-2:#cbd6e3;
+  --fg:#16202b; --fg-dim:#4c5c6f; --fg-dimmer:#76869a;
+  --accent:#0a7ea4; --accent-2:#3b5bdb;
+  --green:#237a4b; --yellow:#9a7500; --orange:#b3600f; --red:#c0392b; --purple:#7b4fc0;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:80px}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
+  font-size:15.5px;line-height:1.7;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+#progress{position:fixed;top:0;left:0;height:2px;width:0%;
+  background:linear-gradient(90deg,var(--accent),var(--accent-2),var(--purple));z-index:100;transition:width .08s linear}
+
+.shell{display:grid;grid-template-columns:274px minmax(0,1fr);max-width:1560px;margin:0 auto}
+.sidebar{position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid var(--line);
+  padding:26px 18px 60px;background:var(--bg-2)}
+.sidebar::-webkit-scrollbar{width:8px}
+.sidebar::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.brand .logo{width:30px;height:30px;border-radius:8px;flex:0 0 auto;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));display:grid;place-items:center;
+  color:#04121a;font-weight:800;font-family:var(--mono);font-size:15px}
+.brand b{font-size:17px;letter-spacing:.2px}
+.brand-sub{color:var(--fg-dimmer);font-size:12px;margin:0 0 20px 40px;font-family:var(--mono)}
+nav.toc{font-size:13.5px}
+nav.toc .grp{text-transform:uppercase;letter-spacing:.09em;font-size:10.5px;color:var(--fg-dimmer);
+  margin:20px 0 7px;font-weight:700}
+nav.toc a{display:block;padding:5px 10px;border-radius:7px;color:var(--fg-dim);
+  border-left:2px solid transparent;line-height:1.4}
+nav.toc a:hover{background:var(--bg-3);color:var(--fg);text-decoration:none}
+nav.toc a.active{color:var(--accent);background:var(--bg-3);border-left-color:var(--accent);font-weight:600}
+.xlink{display:block;margin-top:18px;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;
+  font-size:12.5px;color:var(--fg-dim);background:var(--bg-3)}
+.xlink:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
+.xlink b{display:block;color:var(--fg);font-size:13px;margin-bottom:2px}
+.xlink:hover b{color:var(--accent)}
+
+main{padding:0 46px 140px;min-width:0}
+.wrap{max-width:1000px}
+header.hero{padding:64px 0 34px;border-bottom:1px solid var(--line);margin-bottom:24px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:14px}
+h1{font-size:44px;line-height:1.12;margin:0 0 16px;letter-spacing:-.02em;font-weight:750}
+h1 .sub{display:block;font-size:19px;font-weight:400;color:var(--fg-dim);margin-top:12px;letter-spacing:0}
+h2{font-size:27px;margin:66px 0 14px;letter-spacing:-.015em;font-weight:700;padding-top:8px}
+h2 .hash{color:var(--line-2);font-family:var(--mono);font-size:19px;margin-right:9px}
+h3{font-size:18.5px;margin:34px 0 10px;font-weight:650;letter-spacing:-.01em}
+h4{font-size:14px;margin:22px 0 8px;font-weight:650;color:var(--fg-dim);font-family:var(--mono)}
+p{margin:0 0 15px}
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin:6px 0}
+strong{color:var(--fg);font-weight:650}
+code{font-family:var(--mono);font-size:.875em;background:var(--bg-3);padding:2px 6px;border-radius:5px;
+  color:var(--accent);border:1px solid var(--line)}
+pre code{background:none;border:none;padding:0;border-radius:0;color:var(--fg);font-size:inherit}
+kbd{font-family:var(--mono);font-size:.8em;padding:1px 6px;border-radius:5px;background:var(--bg-3);
+  border:1px solid var(--line-2);border-bottom-width:2px;color:var(--fg);white-space:nowrap}
+
+figure.code{margin:20px 0;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--bg-2)}
+figure.code figcaption{font-family:var(--mono);font-size:11.5px;color:var(--fg-dimmer);padding:8px 14px;
+  background:var(--bg-3);border-bottom:1px solid var(--line)}
+figure.code figcaption .tag{color:var(--accent);letter-spacing:.04em}
+pre{margin:0;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.62}
+pre::-webkit-scrollbar{height:9px}
+pre::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+.k{color:var(--purple)} .s{color:var(--green)} .c{color:var(--fg-dimmer);font-style:italic}
+.n{color:var(--orange)} .f{color:var(--accent-2)}
+
+.tw{overflow-x:auto;margin:20px 0;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:13.6px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--bg-3);font-size:11px;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--fg-dimmer);font-weight:700;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--bg-2)}
+td code{background:transparent;border:none;padding:0;color:var(--accent)}
+td.mono{font-family:var(--mono);font-size:12.6px;white-space:nowrap}
+
+.note{border-left:3px solid var(--accent);background:var(--bg-2);padding:14px 18px;
+  border-radius:0 var(--radius) var(--radius) 0;margin:20px 0;font-size:14.4px}
+.note.warn{border-left-color:var(--orange)}
+.note.good{border-left-color:var(--green)}
+.note .t{font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);
+  display:block;margin-bottom:6px}
+.note.warn .t{color:var(--orange)} .note.good .t{color:var(--green)}
+.note p:last-child{margin-bottom:0}
+
+/* ================= widget frame ================= */
+.widget{border:1px solid var(--line-2);border-radius:14px;background:var(--panel);margin:26px 0;overflow:hidden}
+.widget-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 16px;
+  background:var(--bg-3);border-bottom:1px solid var(--line)}
+.widget-head .wt{font-weight:700;font-size:13.5px;letter-spacing:-.01em}
+.widget-head .wh{font-family:var(--mono);font-size:11px;color:var(--fg-dimmer);margin-left:auto}
+.widget-body{padding:16px}
+.btn{font-family:var(--mono);font-size:11.5px;padding:5px 11px;border-radius:7px;cursor:pointer;
+  border:1px solid var(--line-2);background:var(--bg-2);color:var(--fg-dim);transition:.12s}
+.btn:hover{color:var(--accent);border-color:var(--accent)}
+.btn.pri{color:var(--accent);border-color:var(--accent);background:rgba(81,208,240,.08)}
+.btn.on{color:#04121a;background:var(--accent);border-color:var(--accent);font-weight:700}
+.btn:disabled{opacity:.35;cursor:default}
+.btn:disabled:hover{color:var(--fg-dim);border-color:var(--line-2)}
+.ctrls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.ctrl-lbl{font-family:var(--mono);font-size:11px;color:var(--fg-dimmer);margin-right:2px}
+
+/* ================= TUI mock ================= */
+.tui-wrap{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.tui{background:#0d1117;border:1px solid var(--line-2);border-radius:10px;padding:12px 14px;
+  font-family:var(--mono);font-size:12.4px;line-height:1.52;white-space:pre;overflow-x:auto;
+  color:#d0d0d0;outline:none;min-height:330px;position:relative}
+.tui:focus{border-color:#5fd7ff;box-shadow:0 0 0 3px rgba(95,215,255,.13)}
+.tui-hint{position:absolute;right:12px;top:10px;font-size:10px;color:#5a6673;letter-spacing:.05em;
+  font-family:var(--mono);pointer-events:none}
+.tui:focus .tui-hint{display:none}
+.c81{color:#5fd7ff} .c255{color:#eeeeee} .c252{color:#d0d0d0} .c240{color:#6a6a6a}
+.c236{color:#3a3a3a} .c196{color:#ff5f5f} .c208{color:#ff8700} .c220{color:#ffd700}
+.c70{color:#5faf5f} .c243{color:#8a8a8a} .cbadge{color:#ffd700;font-weight:700}
+.sel{background:#2b3644}
+.bold{font-weight:700}
+.ital{font-style:italic}
+.keypad{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.keypad button{font-family:var(--mono);font-size:11px;padding:4px 9px;border-radius:6px;cursor:pointer;
+  border:1px solid var(--line-2);background:var(--bg-2);color:var(--fg-dim)}
+.keypad button:hover{color:var(--accent);border-color:var(--accent)}
+.keypad button b{color:var(--accent);font-weight:700}
+.evlog{font-family:var(--mono);font-size:11.4px;color:var(--fg-dimmer);background:var(--bg-2);
+  border:1px solid var(--line);border-radius:9px;padding:10px 12px;height:120px;overflow-y:auto;line-height:1.65}
+.evlog div{border-bottom:1px solid rgba(127,127,127,.09);padding:1px 0}
+.evlog .ev-ui{color:var(--accent)}
+.evlog .ev-cmd{color:var(--green)}
+.evlog .ev-msg{color:var(--purple)}
+
+/* ================= stepper ================= */
+.track{display:flex;gap:6px;overflow-x:auto;padding:4px 2px 10px}
+.stepchip{flex:0 0 auto;border:1px solid var(--line-2);background:var(--bg-2);border-radius:9px;
+  padding:6px 10px;cursor:pointer;min-width:104px;transition:.12s}
+.stepchip:hover{border-color:var(--accent)}
+.stepchip .sn{font-family:var(--mono);font-size:10px;color:var(--fg-dimmer)}
+.stepchip .st{font-size:11.6px;line-height:1.3;margin-top:2px;color:var(--fg-dim)}
+.stepchip.act{border-color:var(--accent);background:rgba(81,208,240,.10)}
+.stepchip.act .st{color:var(--fg);font-weight:650}
+.stepchip.done{opacity:.62}
+.stepchip.lane-w{border-left:3px solid var(--green)}
+.stepchip.lane-u{border-left:3px solid var(--accent)}
+.step-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:14px;margin-top:6px}
+.lanebadge{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:5px;
+  border:1px solid var(--line-2);color:var(--fg-dimmer);margin-bottom:8px}
+.lanebadge.u{color:var(--accent);border-color:var(--accent)}
+.lanebadge.w{color:var(--green);border-color:var(--green)}
+.statebox{border:1px solid var(--line);border-radius:10px;background:var(--bg-2);padding:12px 14px;
+  font-family:var(--mono);font-size:12px}
+.statebox .row{display:flex;justify-content:space-between;gap:10px;padding:3px 0;
+  border-bottom:1px solid rgba(127,127,127,.09)}
+.statebox .row:last-child{border-bottom:none}
+.statebox .kk{color:var(--fg-dimmer)}
+.statebox .vv{color:var(--fg)}
+.statebox .row.chg .vv{color:var(--accent);font-weight:700}
+.statebox .row.chg{background:rgba(81,208,240,.07);border-radius:4px}
+.step-detail h4{margin-top:0}
+.step-why{font-size:14px;color:var(--fg-dim)}
+
+/* ================= scan simulator ================= */
+.sim-grid{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr) minmax(0,205px);gap:14px}
+.simpanel{border:1px solid var(--line);border-radius:10px;background:var(--bg-2);padding:12px}
+.simpanel .ph{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--fg-dimmer);margin-bottom:9px}
+.slots{display:flex;flex-wrap:wrap;gap:5px}
+.slot{width:22px;height:22px;border-radius:5px;border:1px solid var(--line-2);background:var(--bg-3);
+  display:grid;place-items:center;font-family:var(--mono);font-size:9.5px;color:var(--fg-dimmer);transition:.1s}
+.slot.full{background:rgba(95,208,138,.20);border-color:var(--green);color:var(--green);font-weight:700}
+.glist{max-height:250px;overflow-y:auto;display:flex;flex-direction:column;gap:4px}
+.grow{display:grid;grid-template-columns:78px 1fr 52px;gap:8px;align-items:center;
+  font-family:var(--mono);font-size:11px}
+.gname{color:var(--fg-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gbar{height:11px;border-radius:4px;background:var(--bg-3);overflow:hidden;position:relative}
+.gbar i{display:block;height:100%;width:0%;background:var(--green);transition:width .08s linear}
+.gstate{font-size:9.6px;text-align:right;color:var(--fg-dimmer)}
+.grow.queued .gname{color:var(--fg-dimmer)}
+.grow.queued .gbar{background:repeating-linear-gradient(45deg,var(--bg-3),var(--bg-3) 4px,var(--bg-2) 4px,var(--bg-2) 8px)}
+.grow.queued .gstate{color:var(--orange)}
+.grow.running .gstate{color:var(--green)}
+.grow.done .gbar i{background:var(--accent)}
+.grow.done .gstate{color:var(--accent)}
+.ctr{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;padding:3px 0}
+.ctr .kk{color:var(--fg-dimmer)} .ctr .vv{color:var(--fg);font-weight:600}
+.ctr.samp .vv{color:var(--accent)}
+.sliderrow{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;
+  color:var(--fg-dim);margin:6px 0}
+.sliderrow input[type=range]{flex:1;accent-color:var(--accent);min-width:90px}
+.sliderrow .val{color:var(--accent);font-weight:700;min-width:66px;text-align:right}
+.gantt{margin-top:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg-2);padding:10px 12px}
+.gantt svg{display:block;width:100%;height:auto}
+.simstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:9px;margin-top:12px}
+.sstat{border:1px solid var(--line);border-radius:9px;background:var(--bg-2);padding:9px 11px}
+.sstat .v{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--accent)}
+.sstat .l{font-size:10.5px;color:var(--fg-dimmer);margin-top:1px}
+.insight{margin-top:12px;border-left:3px solid var(--orange);background:var(--bg-2);padding:10px 14px;
+  border-radius:0 9px 9px 0;font-size:13.4px;color:var(--fg-dim);min-height:44px}
+.insight b{color:var(--orange)}
+
+/* ================= architecture map ================= */
+.mapgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(146px,1fr));gap:9px}
+.mapcard{border:1px solid var(--line-2);border-radius:10px;background:var(--bg-2);padding:11px 12px;
+  cursor:pointer;transition:.12s;text-align:left}
+.mapcard:hover{border-color:var(--accent);transform:translateY(-1px)}
+.mapcard .mf{font-family:var(--mono);font-size:12.4px;font-weight:700;color:var(--fg)}
+.mapcard .mr{font-size:11px;color:var(--fg-dimmer);margin-top:2px;line-height:1.35}
+.mapcard.act{border-color:var(--accent);background:rgba(81,208,240,.11)}
+.mapcard.act .mf{color:var(--accent)}
+.mapcard.rel{border-color:var(--purple)}
+.mapcard .mloc{font-family:var(--mono);font-size:9.5px;color:var(--fg-dimmer);margin-top:5px;opacity:.8}
+.mapdetail{margin-top:14px;border:1px solid var(--line);border-radius:11px;background:var(--bg-2);padding:16px 18px}
+.mapdetail h4{margin:0 0 4px;font-size:15px;color:var(--accent);font-family:var(--mono)}
+.mapdetail .sub{font-size:13.4px;color:var(--fg-dim);margin-bottom:12px}
+.symlist{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px}
+.sym{font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:6px;background:var(--bg-3);
+  border:1px solid var(--line);color:var(--fg-dim)}
+.relchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.relchip{font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:6px;cursor:pointer;
+  border:1px solid var(--purple);color:var(--purple);background:transparent}
+.relchip:hover{background:rgba(185,140,240,.14)}
+.mapdetail ul{margin:6px 0 0;font-size:13.7px}
+.dl{display:grid;grid-template-columns:112px 1fr;gap:4px 12px;font-size:13.4px;margin:10px 0 0}
+.dl dt{font-family:var(--mono);font-size:11px;color:var(--fg-dimmer);padding-top:3px}
+.dl dd{margin:0;color:var(--fg-dim)}
+
+hr{border:none;border-top:1px solid var(--line);margin:48px 0}
+footer.end{margin-top:70px;padding-top:26px;border-top:1px solid var(--line);color:var(--fg-dimmer);font-size:13px}
+#themeBtn{position:fixed;right:22px;bottom:22px;z-index:50;width:40px;height:40px;border-radius:50%;
+  cursor:pointer;background:var(--panel);border:1px solid var(--line-2);color:var(--fg-dim);font-size:16px}
+#themeBtn:hover{color:var(--accent);border-color:var(--accent)}
+
+@media (max-width:1240px){
+  .sim-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .sim-grid .simpanel.wide{grid-column:1 / -1}
+}
+@media (max-width:1060px){
+  .shell{grid-template-columns:1fr}
+  .sidebar{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line);padding-bottom:18px}
+  nav.toc{max-height:300px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--radius);padding:4px 10px}
+  main{padding:0 22px 90px}
+  h1{font-size:33px}
+  .step-grid,.sim-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<div class="shell">
+<aside class="sidebar">
+  <div class="brand"><div class="logo">▸</div><b>dirgo</b></div>
+  <div class="brand-sub">interactive tour</div>
+  <nav class="toc">
+    <div class="grp">Tour</div>
+    <a href="#what">1 · What dirgo is</a>
+    <a href="#tui">2 · Drive it yourself</a>
+    <a href="#trace">3 · One keypress, end to end</a>
+    <a href="#scan">4 · Inside a scan</a>
+    <a href="#map">5 · Codebase map</a>
+    <a href="#change">6 · Where to change what</a>
+    <a href="#next">7 · Where to go next</a>
+  </nav>
+  <a class="xlink" href="architecture.html">
+    <b>Reference docs →</b>
+    Full architecture &amp; implementation guide, including the concurrency deep dive.
+  </a>
+</aside>
+
+<main>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Interactive Tour</div>
+  <h1>Understand dirgo by driving it
+    <span class="sub">A hands-on walkthrough: a working replica of the TUI, a step-through of the message
+    loop, a live simulation of the concurrent scanner, and a clickable map of the codebase.
+    Everything on this page runs locally — no network, no dependencies.</span>
+  </h1>
+</header>
+
+<div class="note">
+  <span class="t">How to use this page</span>
+  <p>Each section pairs a short explanation with something you can actually operate. Start at the
+  terminal replica, then follow a single keypress through the runtime, then watch the scanner fan out
+  across goroutines. When you want the precise details, every widget links into the
+  <a href="architecture.html">reference guide</a>.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="what"><span class="hash">01</span>What dirgo is</h2>
+
+<p><strong>dirgo</strong> is a terminal disk-usage explorer. You point it at a directory; it lists every
+child sorted by size, with proportional bars, recursive totals for folders, and single-key navigation
+into the tree. Think <code>du</code> and <code>ls</code> merged into something you can actually browse.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>The problem</th><th>How dirgo answers it</th></tr></thead>
+<tbody>
+<tr><td>"Which folder is eating my disk?"</td><td>Every row shows a recursive size and a colour-coded bar scaled to its share of the parent. The offender is the red bar at the top.</td></tr>
+<tr><td>"Walking a big tree takes seconds."</td><td>The walk happens on background goroutines, fanned out across cores. The UI stays interactive and shows live counters while it runs.</td></tr>
+<tr><td>"I have to re-run <code>du</code> every time I move."</td><td>Results are cached per directory. Going back up a level is instant, flagged <code>⚡cached</code>.</td></tr>
+<tr><td>"I need to inspect, not just measure."</td><td>Line counts for text files, hex dump for binaries, Quick Look previews, open in the file manager, and move-to-trash — all one key each.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Under the hood it is a Go program built on <strong>Bubble Tea</strong>, which implements
+<em>The Elm Architecture</em>: one immutable model, one <code>Update</code> function, one <code>View</code>
+function, and side effects expressed as commands that run off the UI thread. That single choice is
+what makes the rest of the design fall into place — and it is what the next three widgets make visible.</p>
+
+<!-- ============================================================ -->
+<h2 id="tui"><span class="hash">02</span>Drive it yourself</h2>
+
+<p>Below is a faithful replica of dirgo's interface running against a synthetic home directory. The
+layout arithmetic, colour thresholds, fuzzy search, sort order, size formatting, cache behaviour and
+async line counting are all ported directly from the Go source — so what you see here is what the
+real tool does.</p>
+
+<p><strong>Click the terminal to focus it</strong>, then use the keys. The event log underneath shows what
+the runtime is doing: which message was delivered, which command was dispatched, and on which
+goroutine.</p>
+
+<div class="widget">
+  <div class="widget-head">
+    <span class="wt">dirgo — interactive replica</span>
+    <span class="wh" id="tuiMode">normal mode</span>
+  </div>
+  <div class="widget-body">
+    <div class="tui-wrap">
+      <div class="tui" id="tuiScreen" tabindex="0" role="application" aria-label="dirgo terminal replica">
+        <span class="tui-hint">click to focus</span>
+      </div>
+      <div class="keypad" id="keypad"></div>
+      <div>
+        <div class="ctrl-lbl" style="margin-bottom:6px">RUNTIME EVENT LOG — <span class="ev-ui" style="color:var(--accent)">ui goroutine</span> · <span style="color:var(--green)">command goroutine</span> · <span style="color:var(--purple)">message delivered</span></div>
+        <div class="evlog" id="evlog"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>Things worth trying</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th class="mono">Try this</th><th>What it demonstrates</th></tr></thead>
+<tbody>
+<tr><td class="mono">→ into <code>dev</code>, then ← back</td><td>The first entry triggers a scan (spinner + live counters). Coming back is instant and the header shows <code>⚡cached</code> — the LRU cache at work. The cursor also lands back on <code>dev</code>, because dirgo remembers the entry name per path.</td></tr>
+<tr><td class="mono">Move onto a <code>.go</code> file</td><td>A line count appears in the right-hand column a moment later. That is <code>countLinesCmd</code> running on its own goroutine and returning a <code>lineCountMsg</code> — the row is patched, not re-scanned.</td></tr>
+<tr><td class="mono">Press <kbd>/</kbd> then type <code>mgo</code></td><td>Fuzzy <em>subsequence</em> matching, not substring: <code>mgo</code> finds <code>model.go</code>. The filter runs on every keystroke and reuses its backing array.</td></tr>
+<tr><td class="mono">Press <kbd>h</kbd>, then <kbd>f</kbd> a few times</td><td>The filter chain: hidden toggle → type filter (all → dirs → files) → search → top-10 clamp. Badges in the header reflect the active modes.</td></tr>
+<tr><td class="mono">Press <kbd>s</kbd></td><td>Batch line counting — one message carrying a whole <code>map[name]int</code>, produced by a bounded worker pool.</td></tr>
+<tr><td class="mono">Press <kbd>t</kbd></td><td>Top-10 view: the filtered slice is simply clamped to ten rows.</td></tr>
+<tr><td class="mono">Press <kbd>?</kbd></td><td>The help overlay, which <code>View()</code> returns instead of the list when <code>helpMode</code> is set.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note">
+  <span class="t">Notice the header</span>
+  <p>At this narrow width the header renders on two lines. That is not a hack — it is
+  <code>headerLineCount()</code> measuring the stats segment and deciding there is not enough room for a
+  useful path, exactly as the Go code does. Widen your window and the same logic in real dirgo collapses
+  it to one line.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="trace"><span class="hash">03</span>One keypress, end to end</h2>
+
+<p>Everything in dirgo is a message. Nothing mutates state except <code>Update</code>, and nothing blocks
+the UI except <code>Update</code> and <code>View</code> themselves — both of which are fast by construction.</p>
+
+<p>Step through a complete session below: launching the binary, the first scan finishing, and then a
+single <kbd>↓</kbd> keypress causing a line count to appear. The <strong>lane badge</strong> tells you which
+goroutine is executing, and the <strong>model panel</strong> highlights fields that changed on that step.</p>
+
+<div class="widget">
+  <div class="widget-head">
+    <span class="wt">Message-flow stepper</span>
+    <div class="ctrls" style="margin-left:auto">
+      <button class="btn" id="stPrev">◀ prev</button>
+      <button class="btn pri" id="stPlay">▶ play</button>
+      <button class="btn" id="stNext">next ▶</button>
+      <button class="btn" id="stReset">reset</button>
+    </div>
+  </div>
+  <div class="widget-body">
+    <div class="track" id="stTrack"></div>
+    <div class="step-grid">
+      <div class="step-detail">
+        <span class="lanebadge" id="stLane">lane</span>
+        <h4 id="stTitle">—</h4>
+        <p class="step-why" id="stWhy"></p>
+        <figure class="code" style="margin-top:12px">
+          <figcaption><span class="tag" id="stFile">—</span></figcaption>
+          <pre><code class="go" id="stCode"></code></pre>
+        </figure>
+      </div>
+      <div>
+        <div class="ctrl-lbl" style="margin-bottom:6px">MODEL STATE</div>
+        <div class="statebox" id="stState"></div>
+        <div class="ctrl-lbl" style="margin:14px 0 6px">IN FLIGHT</div>
+        <div class="statebox" id="stFlight"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note good">
+  <span class="t">The key insight</span>
+  <p>Follow the lane badges. Every step is either <em>UI goroutine</em> (fast, serial, owns the model) or
+  <em>command goroutine</em> (slow, parallel, owns nothing). They never share memory — they exchange
+  values. That is why there is not a single mutex protecting application state in the entire program.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="scan"><span class="hash">04</span>Inside a scan</h2>
+
+<p>This is where dirgo actually spends its time. When you enter a directory, <code>scanDirectory</code>
+reads it in one syscall, splits children into files and subdirectories, and then <strong>spawns one
+goroutine per subdirectory</strong> to compute its recursive size. Those goroutines are gated by a counting
+semaphore built from a buffered channel:</p>
+
+<figure class="code">
+<figcaption><span class="tag">scanner.go</span> — the fan-out being simulated below</figcaption>
+<pre><code class="go">sem := make(chan struct{}, minInt(runtime.NumCPU(), 16))
+
+for ri, di := range dirEntryIndices {
+	wg.Add(1)
+	go func(resultIdx int, info dirInfo2) {
+		defer wg.Done()
+		sem &lt;- struct{}{}            // acquire — parks here when all slots are taken
+		defer func() { &lt;-sem }()     // release — wakes the next parked goroutine
+
+		size, files, dirs := dirSizeRecursive(filepath.Join(absPath, info.name), prog)
+		results[resultIdx] = dirResult{index: info.index, size: size,
+			childFiles: files, childDirs: dirs}
+	}(ri, di)
+}
+wg.Wait()
+</code></pre>
+</figure>
+
+<p>Drive the simulator: change the core count, the number of subdirectories, and how evenly the work is
+distributed. Watch the semaphore slots fill, goroutines park and wake, and the atomic counters climb.</p>
+
+<div class="widget">
+  <div class="widget-head">
+    <span class="wt">Concurrent scan simulator</span>
+    <div class="ctrls" style="margin-left:auto">
+      <button class="btn pri" id="simPlay">▶ run</button>
+      <button class="btn" id="simStep">step</button>
+      <button class="btn" id="simReset">reset</button>
+      <span class="ctrl-lbl" style="margin-left:6px">speed</span>
+      <button class="btn spd" data-spd="0.5">0.5×</button>
+      <button class="btn spd on" data-spd="1">1×</button>
+      <button class="btn spd" data-spd="3">3×</button>
+      <button class="btn spd" data-spd="8">8×</button>
+    </div>
+  </div>
+  <div class="widget-body">
+
+    <div class="simpanel" style="margin-bottom:14px">
+      <div class="ph">Parameters</div>
+      <div class="sliderrow">
+        <span style="width:132px">runtime.NumCPU()</span>
+        <input type="range" id="simCpu" min="1" max="32" value="8" />
+        <span class="val" id="simCpuV">8</span>
+      </div>
+      <div class="sliderrow">
+        <span style="width:132px">subdirectories</span>
+        <input type="range" id="simDirs" min="2" max="24" value="10" />
+        <span class="val" id="simDirsV">10</span>
+      </div>
+      <div class="sliderrow">
+        <span style="width:132px">work distribution</span>
+        <div class="ctrls" style="flex:1">
+          <button class="btn skew on" data-skew="even">even</button>
+          <button class="btn skew" data-skew="mixed">mixed</button>
+          <button class="btn skew" data-skew="giant">one giant subtree</button>
+        </div>
+      </div>
+      <div style="font-family:var(--mono);font-size:11.5px;color:var(--fg-dimmer);margin-top:8px">
+        semaphore capacity = min(NumCPU, 16) = <b style="color:var(--accent)" id="simSlotsV">8</b>
+        <span id="simCapNote"></span>
+      </div>
+    </div>
+
+    <div class="sim-grid">
+      <div class="simpanel">
+        <div class="ph">Semaphore · chan struct{}</div>
+        <div class="slots" id="simSlots"></div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--fg-dimmer);margin-top:10px">
+          parked on send: <b style="color:var(--orange)" id="simParked">0</b><br/>
+          running: <b style="color:var(--green)" id="simRunning">0</b><br/>
+          completed: <b style="color:var(--accent)" id="simDone">0</b>
+        </div>
+      </div>
+
+      <div class="simpanel wide">
+        <div class="ph">Goroutines — one per immediate subdirectory</div>
+        <div class="glist" id="simList"></div>
+      </div>
+
+      <div class="simpanel">
+        <div class="ph">ScanProgress (atomics)</div>
+        <div class="ctr"><span class="kk">.Files</span><span class="vv" id="simAF">0</span></div>
+        <div class="ctr"><span class="kk">.Dirs</span><span class="vv" id="simAD">0</span></div>
+        <div class="ctr"><span class="kk">.Size</span><span class="vv" id="simAS">0 B</span></div>
+        <div class="ph" style="margin:14px 0 6px">UI sample · every 100 ms</div>
+        <div class="ctr samp"><span class="kk">files</span><span class="vv" id="simSF">0</span></div>
+        <div class="ctr samp"><span class="kk">dirs</span><span class="vv" id="simSD">0</span></div>
+        <div class="ctr samp"><span class="kk">size</span><span class="vv" id="simSS">0 B</span></div>
+        <div style="font-family:var(--mono);font-size:10.5px;color:var(--fg-dimmer);margin-top:8px;line-height:1.5">
+          the sample lags the atomics — harmless for a progress display, and the reason no lock is needed
+        </div>
+      </div>
+    </div>
+
+    <div class="gantt">
+      <div class="ph" style="font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--fg-dimmer);margin-bottom:8px">Occupancy timeline</div>
+      <svg id="simGantt" viewBox="0 0 900 200" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+
+    <div class="simstats">
+      <div class="sstat"><div class="v" id="simElapsed">0 ms</div><div class="l">wall clock</div></div>
+      <div class="sstat"><div class="v" id="simSeq">0 ms</div><div class="l">if sequential</div></div>
+      <div class="sstat"><div class="v" id="simSpeed">—</div><div class="l">speedup</div></div>
+      <div class="sstat"><div class="v" id="simCrit">0 ms</div><div class="l">critical path</div></div>
+      <div class="sstat"><div class="v" id="simEff">—</div><div class="l">core efficiency</div></div>
+    </div>
+
+    <div class="insight" id="simInsight">Press <b>run</b> to start the scan.</div>
+  </div>
+</div>
+
+<h3>What the simulator is showing you</h3>
+
+<div class="tw">
+<table>
+<thead><tr><th>Observation</th><th>Meaning in the real code</th></tr></thead>
+<tbody>
+<tr><td><strong>Goroutines sit in <code>queued</code> before they run</strong></td><td>All N goroutines are created immediately, but each blocks on <code>sem &lt;- struct{}{}</code> until a slot frees. A parked goroutine costs ~2 KB of stack and zero CPU, which is why dirgo can afford "unbounded goroutines, bounded work" instead of a job-queue worker pool.</td></tr>
+<tr><td><strong>Slots never exceed 16, however high you push NumCPU</strong></td><td><code>minInt(runtime.NumCPU(), 16)</code>. Filesystems do not scale linearly with concurrent readers — past a point extra goroutines just add seek contention and page-cache thrash.</td></tr>
+<tr><td><strong>The UI sample trails the live atomics</strong></td><td>Many writers calling <code>Add(1)</code> at leaf granularity; one reader sampling on each spinner tick. The three counters are read independently, so a snapshot can be slightly inconsistent — invisible in a progress indicator, and far cheaper than a lock.</td></tr>
+<tr><td><strong>"One giant subtree" barely speeds up at all</strong></td><td>The known load-balancing limitation. Work is partitioned by <em>top-level</em> subdirectory, and <code>dirSizeRecursive</code> deliberately does not spawn goroutines for nested directories — so a lone <code>node_modules</code> defines the critical path and no amount of parallelism helps.</td></tr>
+<tr><td><strong>Nothing writes to a shared structure</strong></td><td>Each goroutine writes only <code>results[resultIdx]</code>. Distinct slice elements are distinct memory, so concurrent writes to different indices are not a data race — and <code>wg.Wait()</code> supplies the happens-before edge that makes the later sequential read legal.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The full analysis — including the race-safety audit table, why <code>atomic.Int64</code> rather than the
+free functions, and the exact tuning thresholds — lives in
+<a href="architecture.html#concurrency">§8 of the reference guide</a>.</p>
+
+<!-- ============================================================ -->
+<h2 id="map"><span class="hash">05</span>Codebase map</h2>
+
+<p>Nine files, one <code>main</code> package, no internal directories. Click any file to see its role, its
+key symbols, what it connects to, and what you would change there.</p>
+
+<div class="widget">
+  <div class="widget-head">
+    <span class="wt">Component explorer</span>
+    <span class="wh">click a file · purple = closely related</span>
+  </div>
+  <div class="widget-body">
+    <div class="mapgrid" id="mapGrid"></div>
+    <div class="mapdetail" id="mapDetail"></div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="change"><span class="hash">06</span>Where to change what</h2>
+
+<p>Practical entry points for common modifications.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>I want to…</th><th class="mono">File</th><th class="mono">Start at</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Add or rebind a key</td><td class="mono">keys.go</td><td class="mono">DefaultKeyMap()</td><td>Add the field to <code>KeyMap</code>, then a <code>key.Matches</code> case in the <code>Update</code> switch. Help text lives on the binding, so the overlay updates itself.</td></tr>
+<tr><td>Add a new column to each row</td><td class="mono">render.go</td><td class="mono">renderRow()</td><td>Adjust <code>fixedNonBar</code> to account for the new width or the elastic name column will overflow.</td></tr>
+<tr><td>Change colours or the theme</td><td class="mono">styles.go</td><td class="mono">colorX vars, barColor()</td><td>Keep styles at package level — constructing a Lipgloss style per row is a measurable regression.</td></tr>
+<tr><td>Add a sort mode (name, mtime, lines)</td><td class="mono">entry.go + model.go</td><td class="mono">SortBySize(), applyFilter()</td><td>Add a sort-mode field to <code>Model</code>, apply it in <code>applyFilter</code>, and add a keybinding. No architectural change needed.</td></tr>
+<tr><td>Make scans cancellable</td><td class="mono">scanner.go + model.go</td><td class="mono">scanDirectory()</td><td>Thread a <code>context.Context</code> through the command closure and check it in <code>dirSizeRecursive</code>'s loop; store the cancel func on the model and call it on navigation. Also fixes the stale-result problem in <a href="architecture.html#caveats">§17</a>.</td></tr>
+<tr><td>Change scan concurrency</td><td class="mono">scanner.go</td><td class="mono">sem := make(chan …)</td><td>Two independent semaphores exist — directory sizing (<code>min(NumCPU,16)</code>) and file stat (<code>NumCPU</code>). Also revisit the <code>&gt; 20 files</code> parallel-stat threshold.</td></tr>
+<tr><td>Report true on-disk size</td><td class="mono">scanner.go</td><td class="mono">dirSizeRecursive()</td><td>Use <code>st_blocks</code> from <code>syscall.Stat_t</code> instead of <code>Info().Size()</code>. Needs platform-specific files.</td></tr>
+<tr><td>Persist the cache to disk</td><td class="mono">cache.go</td><td class="mono">lruCache</td><td>Deliberately not implemented — see the README rationale. <code>scanResultMsg</code> is already gob-friendly if you add it.</td></tr>
+<tr><td>Support a new platform action</td><td class="mono">model.go</td><td class="mono">openPath(), trashCmd()</td><td>Both already switch on <code>runtime.GOOS</code>. Mind the escaping rules in <a href="architecture.html#security">§15</a> before interpolating a path into any shell or script string.</td></tr>
+<tr><td>Profile a slow scan</td><td class="mono">main.go</td><td class="mono">--profile flag</td><td>Wraps the whole interactive session in <code>pprof.StartCPUProfile</code>, then <code>go tool pprof -http=:8080 cpu.prof</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Getting the code running</h3>
+
+<figure class="code">
+<figcaption><span class="tag">shell</span></figcaption>
+<pre><code class="bash">git clone https://github.com/mohsinkaleem/dirgo.git &amp;&amp; cd dirgo
+make build     # → ./dirgo
+make test      # go test -race -v ./...   ← race detector is always on
+make bench     # allocation + throughput benchmarks
+./dirgo ~      # try it against your own home directory
+</code></pre>
+</figure>
+
+<div class="note warn">
+  <span class="t">Before you touch the scanner</span>
+  <p>Run <code>make test</code> first and confirm it is green. Every concurrency change should be
+  re-validated under <code>-race</code>; the scanner tests exercise the fan-out paths, so a broken
+  synchronisation assumption fails loudly rather than becoming a heisenbug in the field.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="next"><span class="hash">07</span>Where to go next</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>If you want…</th><th>Go to</th></tr></thead>
+<tbody>
+<tr><td>The precise concurrency semantics, primitive by primitive</td><td><a href="architecture.html#concurrency">Reference §8 — Concurrency deep dive</a></td></tr>
+<tr><td>Why the scanner avoids <code>filepath.WalkDir</code></td><td><a href="architecture.html#scanner">Reference §7 — Scanning pipeline</a></td></tr>
+<tr><td>How the LRU and modtime-gated refresh interact</td><td><a href="architecture.html#cache">Reference §9 — Cache &amp; smart refresh</a></td></tr>
+<tr><td>The allocation-avoidance techniques in the render path</td><td><a href="architecture.html#render">Reference §11 — Render pipeline</a></td></tr>
+<tr><td>Command-injection hardening and trash semantics</td><td><a href="architecture.html#security">Reference §15 — Safety &amp; hardening</a></td></tr>
+<tr><td>An honest list of what the design gives up</td><td><a href="architecture.html#caveats">Reference §17 — Trade-offs &amp; caveats</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<footer class="end">
+  Interactive tour for <strong>dirgo</strong> · all widgets are self-contained JavaScript ports of the
+  Go source · companion to <a href="architecture.html">architecture.html</a>.
+</footer>
+
+</div>
+</main>
+</div>
+
+<button id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+
+<script>
+(function () {
+"use strict";
+
+/* ============================================================
+   shared helpers
+   ============================================================ */
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function $(id){return document.getElementById(id);}
+
+var KW = "func|go|defer|var|const|type|struct|interface|chan|select|case|switch|default|" +
+         "if|else|for|range|return|package|import|map|make|new|nil|true|false|break|continue|goto|fallthrough";
+var RX = new RegExp(
+  "(\\/\\/[^\\n]*)" +
+  "|(`[^`]*`|\"(?:[^\"\\\\\\n]|\\\\.)*\")" +
+  "|\\b(" + KW + ")\\b" +
+  "|\\b(0[xX][0-9a-fA-F]+|\\d+(?:\\.\\d+)?)\\b" +
+  "|\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\()", "g");
+
+function highlight(src){
+  var out="",last=0,m; RX.lastIndex=0;
+  while((m=RX.exec(src))!==null){
+    out+=esc(src.slice(last,m.index));
+    if(m[1]) out+='<span class="c">'+esc(m[1])+"</span>";
+    else if(m[2]) out+='<span class="s">'+esc(m[2])+"</span>";
+    else if(m[3]) out+='<span class="k">'+esc(m[3])+"</span>";
+    else if(m[4]) out+='<span class="n">'+esc(m[4])+"</span>";
+    else if(m[5]) out+='<span class="f">'+esc(m[5])+"</span>";
+    last=m.index+m[0].length;
+  }
+  return out+esc(src.slice(last));
+}
+document.querySelectorAll("code.go").forEach(function(el){
+  if(el.textContent.trim()) el.innerHTML = highlight(el.textContent);
+});
+
+/* ---- ports of utils.go ---- */
+function formatSize(b){
+  var KB=1024, MB=1024*KB, GB=1024*MB, TB=1024*GB;
+  if(b>=TB) return (b/TB).toFixed(1)+" TB";
+  if(b>=GB) return (b/GB).toFixed(1)+" GB";
+  if(b>=MB) return (b/MB).toFixed(1)+" MB";
+  if(b>=KB) return (b/KB).toFixed(1)+" KB";
+  return b+" B";
+}
+function formatCount(n){
+  if(n>=1000000) return (n/1000000).toFixed(1)+"M";
+  if(n>=1000) return (n/1000).toFixed(1)+"k";
+  return String(n);
+}
+function padLeft(s,w){s=String(s);return s.length>=w?s:" ".repeat(w-s.length)+s;}
+function padRight(s,w){s=String(s);return s.length>=w?s:s+" ".repeat(w-s.length);}
+function truncate(s,max){
+  if(max<=0) return "";
+  if(s.length<=max) return s;
+  if(max<=3) return s.slice(0,max);
+  return s.slice(0,max-1)+"\u2026";
+}
+/* exact port of entry.go fuzzyMatch — case-insensitive subsequence */
+function fuzzyMatch(name,pattern){
+  var pi=0;
+  for(var ni=0;ni<name.length && pi<pattern.length;ni++){
+    if(name[ni].toLowerCase()===pattern[pi].toLowerCase()) pi++;
+  }
+  return pi===pattern.length;
+}
+/* exact port of styles.go barColor */
+function barColorClass(pct){
+  if(pct>=40) return "c196";
+  if(pct>=20) return "c208";
+  if(pct>=10) return "c220";
+  if(pct>=2)  return "c70";
+  return "c240";
+}
+function barString(pct,w){
+  var filled=Math.floor(pct/100*w);
+  if(filled<0) filled=0; if(filled>w) filled=w;
+  return "\u2588".repeat(filled)+" ".repeat(w-filled);
+}
+var BIN_EXT = (".png .jpg .jpeg .gif .bmp .ico .webp .svg .mp3 .mp4 .wav .avi .mov .mkv .flac .ogg " +
+  ".zip .tar .gz .bz2 .xz .7z .rar .zst .exe .dll .so .dylib .bin .o .a .pdf .doc .docx .xls .xlsx " +
+  ".ppt .pptx .ttf .otf .woff .woff2 .eot .pyc .pyo .class .wasm .db .sqlite .sqlite3 .xip .iso .parquet").split(" ");
+function isBinaryExt(name){
+  var i=name.lastIndexOf(".");
+  if(i<=0) return false;
+  return BIN_EXT.indexOf(name.slice(i).toLowerCase())>=0;
+}
+
+/* ============================================================
+   WIDGET 1 — TUI replica
+   ============================================================ */
+function F(name,size,lines){return {name:name,size:size,lines:lines||0};}
+function D(name,children){return {name:name,dir:true,children:children};}
+function B(name,size,files,dirs){return {name:name,dir:true,bulk:{size:size,files:files,dirs:dirs}};}
+
+var TREE = D("~", [
+  B("Library", 18400000000, 412003, 51204),
+  B("Pictures", 24800000000, 18204, 402),
+  B("Documents", 3200000000, 8402, 610),
+  B("go", 8900000000, 214003, 28104),
+  B(".cache", 6100000000, 92014, 8201),
+  B(".config", 84000000, 3102, 402),
+  D("Downloads", [
+    F("Xcode_15.4.xip", 7900000000),
+    F("ubuntu-24.04.1-desktop-amd64.iso", 5700000000),
+    F("dataset-2024.parquet", 1240000000),
+    F("screenshot-2026-08-02.png", 1834000),
+    F("invoice-july.pdf", 284000),
+    F("notes.md", 4200, 118)
+  ]),
+  D("dev", [
+    D("dirgo", [
+      B(".git", 18400000, 1204, 92),
+      D("docs", [
+        F("explore.html", 96400, 1912),
+        F("architecture.html", 68200, 1424),
+        F("python-integration.md", 5200, 140),
+        F("dirgo-release-notes.md", 3400, 96)
+      ]),
+      D("archive", [
+        F("contributing-and-release.md", 4100, 112),
+        F("release-and-homebrew.md", 3800, 98)
+      ]),
+      D("dirgo_python", [
+        F("_cli.py", 4400, 132),
+        F("__init__.py", 120, 4)
+      ]),
+      F("dirgo", 6420000),
+      F("model.go", 31800, 1040),
+      F("go.sum", 12400, 96),
+      F("scanner.go", 9200, 302),
+      F("render.go", 8100, 312),
+      F("README.md", 6800, 182),
+      F("utils.go", 5400, 238),
+      F("styles.go", 3900, 152),
+      F("keys.go", 3100, 118),
+      F("entry.go", 2400, 84),
+      F("cache.go", 1900, 78),
+      F("main.go", 1600, 70),
+      F("go.mod", 1100, 32),
+      F("LICENSE", 1100, 21),
+      F("Makefile", 900, 40),
+      F(".gitignore", 240, 18)
+    ]),
+    D("web-app", [
+      B("node_modules", 1820000000, 84213, 9102),
+      B("dist", 42000000, 318, 24),
+      D("src", [
+        F("App.tsx", 18400, 612),
+        F("router.ts", 6200, 208),
+        F("api.ts", 4800, 164),
+        F("index.css", 3100, 142)
+      ]),
+      F("package-lock.json", 1240000, 34112),
+      F("package.json", 2100, 68),
+      F(".env", 320, 12)
+    ]),
+    D("datasets", [
+      F("corpus.tar.gz", 2100000000),
+      F("sample.csv", 18400000, 240112),
+      F("README.md", 1800, 42)
+    ])
+  ]),
+  F(".zshrc", 4812, 168),
+  F(".gitconfig", 892, 31)
+]);
+
+/* resolve a path like "~/dev/dirgo" to a node */
+function nodeAt(path){
+  var parts = path.split("/"), n = TREE;
+  for(var i=1;i<parts.length;i++){
+    if(!n.children) return null;
+    var found=null;
+    for(var j=0;j<n.children.length;j++){ if(n.children[j].name===parts[i]){found=n.children[j];break;} }
+    if(!found) return null;
+    n=found;
+  }
+  return n;
+}
+/* JS analogue of dirSizeRecursive */
+function dirAgg(node){
+  if(node.bulk) return node.bulk;
+  var size=0,files=0,dirs=0;
+  (node.children||[]).forEach(function(c){
+    if(c.dir){ dirs++; var a=dirAgg(c); size+=a.size; files+=a.files; dirs+=a.dirs; }
+    else { files++; size+=c.size; }
+  });
+  return {size:size,files:files,dirs:dirs};
+}
+/* JS analogue of scanDirectory */
+function scan(path){
+  var node = nodeAt(path);
+  if(!node || !node.children) return null;
+  var entries=[], total=0, tFiles=0, tDirs=0;
+  node.children.forEach(function(c){
+    if(c.dir){
+      var a=dirAgg(c); tDirs++;
+      entries.push({name:c.name,size:a.size,isDir:true,hidden:c.name[0]===".",
+        childFiles:a.files,childDirs:a.dirs,lines:0,binary:false,explorable:!!c.children});
+      total+=a.size;
+    }else{
+      tFiles++;
+      entries.push({name:c.name,size:c.size,isDir:false,hidden:c.name[0]===".",
+        childFiles:0,childDirs:0,lines:0,srcLines:c.lines||0,binary:isBinaryExt(c.name),explorable:false});
+      total+=c.size;
+    }
+  });
+  entries.forEach(function(e){ e.pct = total>0 ? e.size/total*100 : 0; });
+  entries.sort(function(a,b){ return b.size-a.size; });   // SortBySize (stable in modern JS)
+  var deepF=tFiles, deepD=tDirs;
+  entries.forEach(function(e){ if(e.isDir){ deepF+=e.childFiles; deepD+=e.childDirs; } });
+  return {path:path,entries:entries,total:total,files:tFiles,dirs:tDirs,deepFiles:deepF,deepDirs:deepD};
+}
+
+var SPIN = ["\u283e","\u283d","\u283b","\u283f","\u287f","\u28df","\u28ef","\u28f7"];
+var W = 78, LIST_H = 14;
+
+var T = {
+  path:"~", entries:[], filtered:[], total:0, files:0, dirs:0, deepFiles:0, deepDirs:0,
+  cursor:0, offset:0, showHidden:true, filter:0, top:false,
+  search:"", searchMode:false, helpMode:false,
+  loading:false, fromCache:false, err:null,
+  prog:{f:0,d:0,s:0}, progTarget:null, spin:0,
+  cache:{}, cursorHistory:{}, lines:{}, pendingCursor:null,
+  timers:[]
+};
+
+function logEv(kind,text){
+  var el=$("evlog");
+  var d=document.createElement("div");
+  var cls = kind==="ui"?"ev-ui":(kind==="cmd"?"ev-cmd":"ev-msg");
+  var tag = kind==="ui"?"UI  ":(kind==="cmd"?"GO  ":"MSG ");
+  d.innerHTML='<span class="'+cls+'">'+tag+'</span>'+esc(text);
+  el.appendChild(d);
+  while(el.children.length>60) el.removeChild(el.firstChild);
+  el.scrollTop=el.scrollHeight;
+}
+function clearTimers(){ T.timers.forEach(clearTimeout); T.timers=[]; }
+function later(fn,ms){ var id=setTimeout(function(){ fn(); }, ms); T.timers.push(id); return id; }
+
+function applyFilter(){
+  var out=[];
+  T.entries.forEach(function(e){
+    if(!T.showHidden && e.hidden) return;
+    if(T.filter===1 && !e.isDir) return;
+    if(T.filter===2 && e.isDir) return;
+    if(T.search && !fuzzyMatch(e.name,T.search)) return;
+    out.push(e);
+  });
+  if(T.top && out.length>10) out=out.slice(0,10);
+  T.filtered=out;
+}
+function ensureVisible(){
+  if(T.cursor<T.offset) T.offset=T.cursor;
+  if(T.cursor>=T.offset+LIST_H) T.offset=T.cursor-LIST_H+1;
+  if(T.offset<0) T.offset=0;
+}
+function moveCursor(d){
+  if(!T.filtered.length) return;
+  T.cursor+=d;
+  if(T.cursor<0) T.cursor=0;
+  if(T.cursor>=T.filtered.length) T.cursor=T.filtered.length-1;
+  ensureVisible();
+  lineCountForSelected();
+}
+/* mirrors model.go lineCountForSelected + countLinesCmd */
+function lineCountForSelected(){
+  if(!T.filtered.length) return;
+  var e=T.filtered[T.cursor];
+  if(e.isDir||e.binary||e.lines>0||!e.srcLines) return;
+  logEv("cmd","countLinesCmd(\""+e.name+"\") dispatched");
+  later(function(){
+    e.lines=e.srcLines;
+    logEv("msg","lineCountMsg{name:\""+e.name+"\", lines:"+e.srcLines+"} \u2192 patch entries + cache");
+    render();
+  }, 260);
+}
+function loadPath(path, restoreName){
+  var cached=T.cache[path];
+  T.err=null; T.search=""; T.searchMode=false;
+  if(cached){
+    logEv("ui","cache HIT for "+path+" \u2014 render immediately, no goroutine");
+    Object.assign(T,{path:path,entries:cached.entries,total:cached.total,files:cached.files,
+      dirs:cached.dirs,deepFiles:cached.deepFiles,deepDirs:cached.deepDirs,
+      loading:false,fromCache:true,cursor:0,offset:0});
+    applyFilter();
+    if(restoreName) selectByName(restoreName);
+    render(); lineCountForSelected();
+    return;
+  }
+  var res=scan(path);
+  if(!res){ T.err="demo tree stops here \u2014 try dev/ or Downloads/"; render(); return; }
+  var agg=dirAgg(nodeAt(path));
+  T.path=path; T.loading=true; T.fromCache=false; T.pendingCursor=restoreName||null;
+  T.prog={f:0,d:0,s:0}; T.progTarget=agg;
+  logEv("cmd","scanDirectory(\""+path+"\", prog) spawned \u2014 UI stays live");
+  logEv("ui","tea.Batch(scanDirectory, spinner.Tick)");
+  var dur = Math.min(1400, 260 + Math.log2(1+agg.files)*90);
+  var t0=Date.now();
+  (function tick(){
+    if(!T.loading) return;
+    var f=Math.min(1,(Date.now()-t0)/dur);
+    var ease=f*f*(3-2*f);
+    T.prog={f:Math.floor(agg.files*ease),d:Math.floor(agg.dirs*ease),s:Math.floor(agg.size*ease)};
+    T.spin=(T.spin+1)%SPIN.length;
+    render();
+    if(f<1) later(tick,90);
+    else{
+      T.loading=false;
+      T.cache[path]=res;
+      Object.assign(T,{entries:res.entries,total:res.total,files:res.files,dirs:res.dirs,
+        deepFiles:res.deepFiles,deepDirs:res.deepDirs,cursor:0,offset:0});
+      applyFilter();
+      logEv("msg","scanResultMsg{"+res.entries.length+" entries, "+formatSize(res.total)+"} \u2192 cache.Put");
+      if(T.pendingCursor){ selectByName(T.pendingCursor); T.pendingCursor=null; }
+      render(); lineCountForSelected();
+    }
+  })();
+}
+function selectByName(name){
+  for(var i=0;i<T.filtered.length;i++){
+    if(T.filtered[i].name===name){ T.cursor=i; ensureVisible(); return; }
+  }
+}
+function navigateIn(){
+  if(!T.filtered.length) return;
+  var e=T.filtered[T.cursor];
+  if(!e.isDir){ T.err="would open \""+e.name+"\" with the OS default handler"; render(); return; }
+  if(!e.explorable){ T.err="demo tree stops here \u2014 try dev/, Downloads/ or dirgo/"; render(); return; }
+  T.cursorHistory[T.path]=e.name;
+  var target=T.path+"/"+e.name;
+  logEv("ui","navigateIn() \u2192 "+target);
+  loadPath(target, T.cursorHistory[target]);
+}
+function navigateUp(){
+  if(T.path==="~") return;
+  var child=T.path.split("/").pop();
+  var parent=T.path.split("/").slice(0,-1).join("/");
+  if(T.filtered.length) T.cursorHistory[T.path]=T.filtered[T.cursor].name;
+  logEv("ui","navigateUp() \u2192 "+parent+"  (highlight \""+child+"\")");
+  loadPath(parent, child);
+}
+
+/* ---- rendering: mirrors render.go ---- */
+function sp(text,cls,selected){
+  var c=(cls||"")+(selected?" sel":"");
+  return '<span class="'+c.trim()+'">'+esc(text)+"</span>";
+}
+function buildStats(){
+  var parts=[];
+  parts.push("Total: "+formatSize(T.total));
+  var fs=String(T.files); if(T.deepFiles>T.files) fs+="/"+formatCount(T.deepFiles);
+  parts.push(fs+" files");
+  var ds=String(T.dirs); if(T.deepDirs>T.dirs) ds+="/"+formatCount(T.deepDirs);
+  parts.push(ds+" dirs");
+  var badges=[];
+  if(T.top) badges.push("TOP 10");
+  if(T.filter===1) badges.push("DIRS"); else if(T.filter===2) badges.push("FILES");
+  if(T.showHidden) badges.push("HIDDEN");
+  return {stats:parts, badges:badges, cached:T.fromCache};
+}
+function renderHeaderLines(){
+  var s=buildStats();
+  var statsTxt=" \u2502 "+s.stats.join(" \u2502 ")+
+    (s.badges.length?" \u2502 "+s.badges.join(" \u2502 "):"")+(s.cached?" \u2502 \u26a1cached":"");
+  var statsHTML="";
+  s.stats.forEach(function(p){ statsHTML+=sp(" \u2502 ","c240")+sp(p,"c240"); });
+  s.badges.forEach(function(b){ statsHTML+=sp(" \u2502 ","c240")+sp(b,"cbadge"); });
+  if(s.cached) statsHTML+=sp(" \u2502 ","c240")+sp("\u26a1cached","c81");
+  var pathTxt=T.path;
+  var maxPath=W-statsTxt.length-2;
+  if(maxPath>=12) return [sp(" "+truncate(pathTxt,maxPath),"c255 bold")+statsHTML];
+  return [sp(" "+truncate(pathTxt,W-2),"c255 bold"), " "+statsHTML];
+}
+function renderRow(i,e,selected){
+  var barW=14, nameW=24;
+  var pointer = selected? "\u25b6 " : "  ";
+  var num = padLeft((i+1)+".",3);
+  var bar = barString(e.pct,barW);
+  var pct = padLeft(e.pct.toFixed(1)+"%",6);
+  var icon = e.isDir? "\u25b8 " : "  ";
+  var name = padRight(truncate(e.name,nameW),nameW);
+  var size = padLeft(formatSize(e.size),9);
+  var meta = padLeft(e.lines>0? formatCount(e.lines)+" l" : "",6);
+  var s=selected;
+  var html =
+    sp(pointer, selected?"c81 bold":"c240", false) +
+    sp(num,"c240",s) + sp(" ","",s) +
+    sp(bar,barColorClass(e.pct),s) + sp(" ","",s) +
+    sp(pct,"c240",s) + sp(" ","",s) +
+    sp("\u2502","c236",s) + sp(" ","",s) +
+    sp(icon,"c81",s) +
+    sp(name, s?"c255 bold":"c252", s) + sp(" ","",s) +
+    sp(size,"c240",s) + sp(" ","",s) +
+    sp(meta,"c243 ital",s);
+  var used = 2+3+1+barW+1+6+1+1+1+2+nameW+1+9+1+6;
+  if(used<W) html += sp(" ".repeat(W-used),"",s);
+  return html;
+}
+function renderFooter(){
+  if(T.searchMode) return sp(" / ","c81 bold")+sp(T.search+"\u2588","c255")+sp("   \u2191\u2193 nav  \u23ce apply  esc cancel","c240");
+  var keys=[["\u2191\u2193","nav"],["\u2190","back"],["\u2192","open"],["r","refresh"],["t","top10"],
+            ["/","search"],["h","hidden"],["f","filter"],["s","lines"],["?","help"],["q","quit"]];
+  var out=" ";
+  keys.forEach(function(k,i){ if(i) out+="  "; out+=k[0]+" "+k[1]; });
+  var html=" ";
+  keys.forEach(function(k,i){ if(i) html+=sp("  ","c240"); html+=sp(k[0],"c81 bold")+sp(" "+k[1],"c240"); });
+  return html;
+}
+function renderHelp(){
+  var rows=[["\u2191 / k","Move cursor up"],["\u2193 / j","Move cursor down"],["\u2190 / BS","Go to parent"],
+    ["\u2192 / l / \u23ce","Open dir / file"],["Space","Quick Look"],["g / G","Top / bottom"],
+    ["r","Refresh (smart)"],["t","Toggle top 10"],["/","Search / filter"],["c","cd to path"],
+    ["h","Toggle hidden"],["f","Cycle filter"],["d","Move to Trash"],["s","Count all lines"],
+    ["x","Hex view"],["? / esc","Close this"]];
+  var out=[]; out.push("");
+  out.push(sp("  \u256d","c81")+sp("\u2500".repeat(46),"c81")+sp("\u256e","c81"));
+  out.push(sp("  \u2502","c81")+sp("  Keybindings"+" ".repeat(33),"c81 bold")+sp("\u2502","c81"));
+  out.push(sp("  \u2502","c81")+" ".repeat(46)+sp("\u2502","c81"));
+  rows.forEach(function(r){
+    var line="  "+padRight(r[0],14)+padRight(r[1],30);
+    out.push(sp("  \u2502","c81")+sp(padRight("  "+r[0],16),"c81")+sp(padRight(r[1],30),"c252")+sp("\u2502","c81"));
+  });
+  out.push(sp("  \u2502","c81")+" ".repeat(46)+sp("\u2502","c81"));
+  out.push(sp("  \u2570","c81")+sp("\u2500".repeat(46),"c81")+sp("\u256f","c81"));
+  return out;
+}
+function render(){
+  var el=$("tuiScreen");
+  var lines=[];
+  if(T.helpMode){
+    lines=renderHelp();
+    while(lines.length<LIST_H+5) lines.push("");
+  }else{
+    var hdr=renderHeaderLines();
+    hdr.forEach(function(h){ lines.push(h); });
+    lines.push(sp("\u2500".repeat(W),"c236"));
+    if(T.loading){
+      var body=[];
+      for(var i=0;i<Math.floor(LIST_H/2)-1;i++) body.push("");
+      body.push(sp("   "+SPIN[T.spin]+" Scanning\u2026","c81"));
+      body.push("");
+      body.push(sp("   "+T.prog.f+" files \u00b7 "+T.prog.d+" dirs \u00b7 "+formatSize(T.prog.s)+" scanned","c240"));
+      while(body.length<LIST_H) body.push("");
+      lines=lines.concat(body);
+    }else if(!T.filtered.length){
+      var body2=[];
+      for(var j=0;j<Math.floor(LIST_H/2);j++) body2.push("");
+      body2.push(sp("   "+(T.search?"(no matches)":"Empty directory"),"c240"));
+      while(body2.length<LIST_H) body2.push("");
+      lines=lines.concat(body2);
+    }else{
+      var end=Math.min(T.offset+LIST_H,T.filtered.length), n=0;
+      for(var i2=T.offset;i2<end;i2++){ lines.push(renderRow(i2,T.filtered[i2],i2===T.cursor)); n++; }
+      for(;n<LIST_H;n++) lines.push("");
+    }
+    lines.push(sp("\u2500".repeat(W),"c236"));
+    lines.push(T.err? sp(" Error: "+T.err,"c196 bold") : renderFooter());
+  }
+  el.innerHTML='<span class="tui-hint">click to focus</span>'+lines.join("\n");
+  $("tuiMode").textContent = T.helpMode?"help overlay":(T.searchMode?"search mode":(T.loading?"scanning\u2026":"normal mode"));
+}
+
+function handleKey(k){
+  T.err=null;
+  if(T.searchMode){
+    if(k==="Escape"){ T.searchMode=false; T.search=""; applyFilter(); T.cursor=0; T.offset=0;
+      logEv("ui","esc \u2192 exit search, applyFilter()"); render(); return true; }
+    if(k==="Enter"){ T.searchMode=false; logEv("ui","enter \u2192 commit filter"); render(); return true; }
+    if(k==="ArrowUp"){ moveCursor(-1); render(); return true; }
+    if(k==="ArrowDown"){ moveCursor(1); render(); return true; }
+    if(k==="Backspace"){ T.search=T.search.slice(0,-1); applyFilter(); T.cursor=0; T.offset=0; render(); return true; }
+    if(k.length===1){ T.search+=k; applyFilter(); T.cursor=0; T.offset=0;
+      logEv("ui","filterEntriesInto(filtered[:0], \u2026, \""+T.search+"\") \u2192 "+T.filtered.length+" rows");
+      render(); return true; }
+    return false;
+  }
+  if(T.helpMode){ T.helpMode=false; render(); return true; }
+  switch(k){
+    case "ArrowUp": case "k": moveCursor(-1); render(); return true;
+    case "ArrowDown": case "j": moveCursor(1); render(); return true;
+    case "ArrowLeft": case "Backspace": navigateUp(); return true;
+    case "ArrowRight": case "l": case "Enter": navigateIn(); return true;
+    case "g": T.cursor=0; T.offset=0; lineCountForSelected(); render(); return true;
+    case "G": T.cursor=Math.max(0,T.filtered.length-1); ensureVisible(); lineCountForSelected(); render(); return true;
+    case "/": T.searchMode=true; logEv("ui","searchMode = true, textinput.Focus()"); render(); return true;
+    case "h": T.showHidden=!T.showHidden; applyFilter(); T.cursor=0; T.offset=0;
+      logEv("ui","showHidden = "+T.showHidden+" \u2192 applyFilter()"); render(); return true;
+    case "f": T.filter=(T.filter+1)%3; applyFilter(); T.cursor=0; T.offset=0;
+      logEv("ui","viewFilter = "+["FilterAll","FilterDirsOnly","FilterFilesOnly"][T.filter]); render(); return true;
+    case "t": T.top=!T.top; applyFilter(); T.cursor=0; T.offset=0;
+      logEv("ui","topMode = "+T.top); render(); return true;
+    case "r":
+      logEv("cmd","smartRefreshCmd \u2014 os.Stat modtime probe first");
+      later(function(){ logEv("msg","scanUpToDateMsg \u2014 nothing changed, no rescan"); },300);
+      return true;
+    case "s":
+      logEv("cmd","countAllLinesCmd \u2014 NumCPU workers + mutex-guarded map");
+      later(function(){
+        var n=0;
+        T.entries.forEach(function(e){ if(!e.isDir && !e.binary && e.srcLines){ e.lines=e.srcLines; n++; } });
+        logEv("msg","batchLineCountMsg{Counts: "+n+" entries}");
+        render();
+      },520);
+      return true;
+    case "?": T.helpMode=true; logEv("ui","helpMode = true"); render(); return true;
+    case "Escape": if(T.top){ T.top=false; applyFilter(); render(); } return true;
+    case "q": T.err="tea.Quit \u2014 (disabled in this replica)"; render(); return true;
+  }
+  return false;
+}
+
+var KEYPAD = [["\u2191","ArrowUp"],["\u2193","ArrowDown"],["\u2190","ArrowLeft"],["\u2192","ArrowRight"],
+  ["g","g"],["G","G"],["/","/"],["h","h"],["f","f"],["t","t"],["s","s"],["r","r"],["?","?"],["esc","Escape"]];
+(function initKeypad(){
+  var kp=$("keypad");
+  KEYPAD.forEach(function(p){
+    var b=document.createElement("button");
+    b.innerHTML="<b>"+esc(p[0])+"</b>";
+    b.addEventListener("click",function(){ handleKey(p[1]); $("tuiScreen").focus(); });
+    kp.appendChild(b);
+  });
+})();
+$("tuiScreen").addEventListener("keydown",function(ev){
+  var k=ev.key;
+  if(handleKey(k)) ev.preventDefault();
+});
+$("tuiScreen").addEventListener("click",function(){ $("tuiScreen").focus(); });
+
+/* boot the replica */
+(function bootTui(){
+  logEv("ui","main() \u2192 NewModel(\"~\") \u2192 tea.NewProgram(\u2026).Run()");
+  loadPath("~", null);
+})();
+
+/* ============================================================
+   WIDGET 2 — message-flow stepper
+   ============================================================ */
+var STEPS = [
+  { lane:"u", title:"main() validates the target", file:"main.go",
+    why:"Flags are parsed, the path is made absolute and confirmed to be a directory, then the model is constructed and handed to the Bubble Tea runtime. Nothing has touched the filesystem beyond one os.Stat.",
+    code:["absPath, err := filepath.Abs(path)","info, err := os.Stat(absPath)","if !info.IsDir() { /* bail out */ }","","model := NewModel(absPath)","p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())","p.Run()"],
+    state:{path:"~/dev", loading:"true", entries:"0", cursor:"0", scanProg:"&ScanProgress{}"},
+    flight:{} },
+
+  { lane:"u", title:"Init() returns two commands", file:"model.go",
+    why:"tea.Batch bundles the scan and the spinner tick. Returning a Cmd is not running it \u2014 the runtime will execute each on its own goroutine.",
+    code:["func (m Model) Init() tea.Cmd {","\treturn tea.Batch(scanDirectory(m.path, m.scanProg), m.spinner.Tick)","}"],
+    state:{path:"~/dev", loading:"true", entries:"0", cursor:"0", scanProg:"&ScanProgress{}"},
+    flight:{} },
+
+  { lane:"w", title:"Runtime spawns the goroutines", file:"bubbletea runtime",
+    why:"Two goroutines now run concurrently with the UI. The scanner will take hundreds of milliseconds; the ticker fires roughly every 100 ms. Neither can touch the Model.",
+    code:["// conceptually, inside the runtime:","go func() { msgCh <- scanCmd() }()","go func() { msgCh <- tickCmd() }()"],
+    state:{path:"~/dev", loading:"true", entries:"0", cursor:"0", scanProg:"&ScanProgress{}"},
+    flight:{"scanDirectory":"running", "spinner.Tick":"running"} },
+
+  { lane:"w", title:"Scanner fans out across subdirectories", file:"scanner.go",
+    why:"os.ReadDir returns the whole listing in one syscall. Subdirectories get one goroutine each, gated by a semaphore of min(NumCPU,16). Every file counted bumps an atomic counter.",
+    code:["sem := make(chan struct{}, minInt(runtime.NumCPU(), 16))","","go func(resultIdx int, info dirInfo2) {","\tdefer wg.Done()","\tsem <- struct{}{}","\tdefer func() { <-sem }()","\tsize, files, dirs := dirSizeRecursive(dirPath, prog)","\tresults[resultIdx] = dirResult{ /* ... */ }","}(ri, di)"],
+    state:{path:"~/dev", loading:"true", entries:"0", cursor:"0", scanProg:"Files=8412 \u2191"},
+    flight:{"scanDirectory":"8 goroutines active, 4 parked", "spinner.Tick":"running"} },
+
+  { lane:"u", title:"TickMsg \u2014 UI samples the atomics", file:"model.go",
+    why:"The only contact between the scanner and the UI while work is in flight: three lock-free atomic loads, copied into plain fields for display. This is what makes the progress line move.",
+    code:["case spinner.TickMsg:","\tif m.loading {","\t\tm.spinner, cmd = m.spinner.Update(msg)","\t\tif m.scanProg != nil {","\t\t\tm.scanProgFiles = m.scanProg.Files.Load()","\t\t\tm.scanProgDirs  = m.scanProg.Dirs.Load()","\t\t\tm.scanProgSize  = m.scanProg.Size.Load()","\t\t}","\t}"],
+    state:{path:"~/dev", loading:"true", entries:"0", cursor:"0", scanProgFiles:"8412"},
+    flight:{"scanDirectory":"running", "spinner.Tick":"re-armed"} },
+
+  { lane:"u", title:"View() draws the spinner frame", file:"model.go",
+    why:"The whole screen is rebuilt as one string into a reused strings.Builder. Bubble Tea diffs it against the previous frame and writes only what changed.",
+    code:["spinnerView := m.spinner.View() + \" Scanning...\"","if m.scanProgFiles > 0 || m.scanProgDirs > 0 {","\tspinnerView += fmt.Sprintf(\"\\n\\n  %d files \u00b7 %d dirs \u00b7 %s scanned\",","\t\tm.scanProgFiles, m.scanProgDirs, formatSize(m.scanProgSize))","}"],
+    state:{path:"~/dev", loading:"true", entries:"0", cursor:"0", scanProgFiles:"8412"},
+    flight:{"scanDirectory":"running"} },
+
+  { lane:"w", title:"wg.Wait() returns \u2014 result assembled", file:"scanner.go",
+    why:"Every worker has finished, so reading results[] is safe. Percentages are computed, entries are sorted by size, and the whole thing is packed into one immutable message.",
+    code:["wg.Wait()","","for i := range entries {","\tentries[i].Percentage = float64(entries[i].Size) / float64(totalSize) * 100","}","SortBySize(entries)","","return scanResultMsg{path: absPath, entries: entries, totalSize: totalSize, /* ... */}"],
+    state:{path:"~/dev", loading:"true", entries:"0", cursor:"0", scanProgFiles:"11204"},
+    flight:{"scanDirectory":"returning scanResultMsg"} },
+
+  { lane:"u", title:"Update(scanResultMsg) folds it in", file:"model.go",
+    why:"The single largest state transition in the program: cache the result, clear loading, release the progress block, compute deep totals, rebuild the filtered slice, and restore a remembered cursor.",
+    code:["case scanResultMsg:","\tm.cache.Put(msg.path, msg)","\tm.loading = false","\tm.scanProg = nil","\tm.entries = msg.entries","\tm.totalSize = msg.totalSize","","\tm.deepTotalFiles = int64(msg.totalFiles)","\tfor _, e := range msg.entries {","\t\tif e.IsDir { m.deepTotalFiles += int64(e.ChildFiles) }","\t}","\tm.applyFilter()"],
+    state:{path:"~/dev", loading:"false", entries:"14", cursor:"0", scanProg:"nil"},
+    flight:{} },
+
+  { lane:"u", title:"…and immediately dispatches another Cmd", file:"model.go",
+    why:"The selected row is a text file, so a line count is requested. Update never does the I/O itself \u2014 it returns a command and lets the runtime handle it.",
+    code:["if len(m.filtered) > 0 && m.cursor < len(m.filtered) {","\te := m.filtered[m.cursor]","\tif !e.IsDir && !e.IsBinary {","\t\tcmds = append(cmds, countLinesCmd(m.path, e.Name))","\t}","}","return m, tea.Batch(cmds...)"],
+    state:{path:"~/dev", loading:"false", entries:"14", cursor:"0", scanProg:"nil"},
+    flight:{"countLinesCmd":"spawned"} },
+
+  { lane:"u", title:"You press ↓", file:"model.go",
+    why:"The key falls through the mode cascade (goto? search? help? no) into the normal KeyMap. moveCursor clamps and scrolls; then the same lazy line-count guard runs for the new selection.",
+    code:["case key.Matches(msg, m.keys.Down):","\tm = m.moveCursor(1)","\treturn m, m.lineCountForSelected()","","// lineCountForSelected skips dirs, binaries, and anything already counted","if e.IsDir || e.IsBinary || e.LineCount > 0 {","\treturn nil","}"],
+    state:{path:"~/dev", loading:"false", entries:"14", cursor:"1", scanProg:"nil"},
+    flight:{"countLinesCmd":"spawned (row 1)"} },
+
+  { lane:"w", title:"countLines reads with a pooled buffer", file:"utils.go",
+    why:"A 64 KB buffer is borrowed from a sync.Pool. The first chunk doubles as the binary check \u2014 a NUL byte in the first 512 bytes aborts immediately \u2014 and newlines are counted with SIMD-accelerated bytes.Count.",
+    code:["buf := bufPool.Get().([]byte)","defer bufPool.Put(buf)","","n, err := f.Read(buf)","if n > 0 && isBinaryContent(buf[:n]) {","\treturn 0, true, nil","}","count := bytes.Count(buf[:n], []byte{'\\n'})"],
+    state:{path:"~/dev", loading:"false", entries:"14", cursor:"1", scanProg:"nil"},
+    flight:{"countLinesCmd":"reading"} },
+
+  { lane:"u", title:"lineCountMsg patches three places", file:"model.go",
+    why:"The count is written into entries, filtered, and the cached snapshot. Without the cache write-back, navigating away and returning would silently lose it. Then View() repaints and the loop is idle again.",
+    code:["case lineCountMsg:","\tfor i := range m.entries { /* patch by name */ }","\tfor i := range m.filtered { /* patch by name */ }","","\tif cached, ok := m.cache.Get(m.path); ok {","\t\t// write-back so re-navigation keeps the count","\t\tm.cache.Put(m.path, cached)","\t}"],
+    state:{path:"~/dev", loading:"false", entries:"14", cursor:"1", "filtered[1].LineCount":"1040"},
+    flight:{} }
+];
+
+var stIdx=0, stPlaying=false, stTimer=null, stPrevState={};
+
+function renderStepper(){
+  var s=STEPS[stIdx];
+  var track=$("stTrack");
+  if(!track.children.length){
+    STEPS.forEach(function(st,i){
+      var b=document.createElement("button");
+      b.className="stepchip lane-"+st.lane;
+      b.innerHTML='<div class="sn">'+padLeft(i+1,2)+'</div><div class="st">'+esc(st.title)+"</div>";
+      b.addEventListener("click",function(){ stIdx=i; stopPlay(); renderStepper(); });
+      track.appendChild(b);
+    });
+  }
+  Array.prototype.forEach.call(track.children,function(c,i){
+    c.classList.toggle("act", i===stIdx);
+    c.classList.toggle("done", i<stIdx);
+  });
+  // Scroll only the track, never the page: scrollIntoView() would drag the whole document.
+  var chip=track.children[stIdx];
+  if(chip){
+    var want=chip.offsetLeft-(track.clientWidth-chip.offsetWidth)/2;
+    var max=track.scrollWidth-track.clientWidth;
+    track.scrollTo({left:Math.max(0,Math.min(max,want)),behavior:"smooth"});
+  }
+
+  var lane=$("stLane");
+  lane.className="lanebadge "+s.lane;
+  lane.textContent = s.lane==="u" ? "UI GOROUTINE \u00b7 serial, owns the model" : "COMMAND GOROUTINE \u00b7 parallel, owns nothing";
+  $("stTitle").textContent = s.title;
+  $("stWhy").textContent = s.why;
+  $("stFile").textContent = s.file;
+  var codeEl=$("stCode");
+  codeEl.textContent = s.code.join("\n");
+  codeEl.innerHTML = highlight(codeEl.textContent);
+
+  var box=$("stState"); box.innerHTML="";
+  Object.keys(s.state).forEach(function(k){
+    var changed = stPrevState[k]!==s.state[k];
+    var d=document.createElement("div");
+    d.className="row"+(changed?" chg":"");
+    d.innerHTML='<span class="kk">'+esc(k)+'</span><span class="vv">'+esc(s.state[k])+"</span>";
+    box.appendChild(d);
+  });
+  stPrevState=Object.assign({},s.state);
+
+  var fb=$("stFlight"); fb.innerHTML="";
+  var keys=Object.keys(s.flight);
+  if(!keys.length){
+    fb.innerHTML='<div class="row"><span class="kk">\u2014</span><span class="vv">idle, waiting for input</span></div>';
+  }else{
+    keys.forEach(function(k){
+      var d=document.createElement("div"); d.className="row";
+      d.innerHTML='<span class="kk">'+esc(k)+'</span><span class="vv" style="color:var(--green)">'+esc(s.flight[k])+"</span>";
+      fb.appendChild(d);
+    });
+  }
+  $("stPrev").disabled = stIdx===0;
+  $("stNext").disabled = stIdx===STEPS.length-1;
+}
+function stopPlay(){ stPlaying=false; clearInterval(stTimer); $("stPlay").textContent="\u25b6 play"; $("stPlay").classList.remove("on"); }
+$("stPrev").addEventListener("click",function(){ if(stIdx>0){stIdx--; stopPlay(); renderStepper();} });
+$("stNext").addEventListener("click",function(){ if(stIdx<STEPS.length-1){stIdx++; stopPlay(); renderStepper();} });
+$("stReset").addEventListener("click",function(){ stIdx=0; stopPlay(); stPrevState={}; renderStepper(); });
+$("stPlay").addEventListener("click",function(){
+  if(stPlaying){ stopPlay(); return; }
+  stPlaying=true; $("stPlay").textContent="\u2016 pause"; $("stPlay").classList.add("on");
+  stTimer=setInterval(function(){
+    if(stIdx>=STEPS.length-1){ stopPlay(); return; }
+    stIdx++; renderStepper();
+  }, 2600);
+});
+renderStepper();
+
+/* ============================================================
+   WIDGET 3 — concurrent scan simulator
+   ============================================================ */
+var SIM = {
+  cpu:8, nDirs:10, skew:"even", speed:1,
+  slots:8, dirs:[], queue:[], active:[],
+  t:0, running:false, finished:false,
+  atom:{f:0,d:0,s:0}, samp:{f:0,d:0,s:0}, lastSample:0,
+  raf:null, seed:12345
+};
+function rnd(){ SIM.seed=(SIM.seed*1103515245+12345)&0x7fffffff; return SIM.seed/0x7fffffff; }
+var DIRNAMES=["node_modules","src","dist",".git","docs","vendor","target","build","assets","tests",
+  "pkg","cmd","internal","examples","scripts","data","tmp","cache","logs","public","lib","bin","config","migrations"];
+
+function simBuild(){
+  SIM.seed=12345;
+  SIM.slots=Math.min(SIM.cpu,16);
+  SIM.dirs=[];
+  for(var i=0;i<SIM.nDirs;i++){
+    var work;
+    if(SIM.skew==="even") work = 280 + Math.floor(rnd()*70);
+    else if(SIM.skew==="mixed") work = 90 + Math.floor(rnd()*820);
+    else work = (i===0) ? 3200 : 110 + Math.floor(rnd()*110);
+    SIM.dirs.push({
+      i:i, name:DIRNAMES[i%DIRNAMES.length], work:work, done:0,
+      state:"queued", start:null, end:null,
+      files: Math.floor(work*11 + rnd()*400),
+      subdirs: Math.floor(work*0.9 + rnd()*40),
+      bytes: Math.floor(work*1.9e6 + rnd()*4e6)
+    });
+  }
+  SIM.queue=SIM.dirs.slice();
+  SIM.active=[];
+  SIM.t=0; SIM.finished=false;
+  SIM.atom={f:0,d:0,s:0}; SIM.samp={f:0,d:0,s:0}; SIM.lastSample=0;
+  simAdmit();
+  simRender();
+}
+function simAdmit(){
+  while(SIM.active.length<SIM.slots && SIM.queue.length){
+    var g=SIM.queue.shift();
+    g.state="running"; g.start=SIM.t;
+    SIM.active.push(g);
+  }
+}
+function simTick(dt){
+  if(SIM.finished) return;
+  SIM.t+=dt;
+  for(var i=SIM.active.length-1;i>=0;i--){
+    var g=SIM.active[i];
+    var before=g.done;
+    g.done=Math.min(g.work,g.done+dt);
+    var frac=(g.done-before)/g.work;
+    SIM.atom.f+=g.files*frac;
+    SIM.atom.d+=g.subdirs*frac;
+    SIM.atom.s+=g.bytes*frac;
+    if(g.done>=g.work){
+      g.state="done"; g.end=SIM.t;
+      SIM.active.splice(i,1);
+    }
+  }
+  simAdmit();
+  if(SIM.t-SIM.lastSample>=100){
+    SIM.lastSample=SIM.t;
+    SIM.samp={f:SIM.atom.f,d:SIM.atom.d,s:SIM.atom.s};
+  }
+  if(!SIM.active.length && !SIM.queue.length){
+    SIM.finished=true; SIM.running=false;
+    SIM.samp={f:SIM.atom.f,d:SIM.atom.d,s:SIM.atom.s};
+    $("simPlay").textContent="\u25b6 run"; $("simPlay").classList.remove("on");
+  }
+}
+function simRender(){
+  var slotsEl=$("simSlots"); slotsEl.innerHTML="";
+  for(var i=0;i<SIM.slots;i++){
+    var d=document.createElement("div");
+    var occ=SIM.active[i];
+    d.className="slot"+(occ?" full":"");
+    d.textContent = occ? "g"+occ.i : "";
+    d.title = occ? "held by goroutine "+occ.i+" ("+occ.name+")" : "free";
+    slotsEl.appendChild(d);
+  }
+  $("simParked").textContent=SIM.queue.length;
+  $("simRunning").textContent=SIM.active.length;
+  $("simDone").textContent=SIM.dirs.filter(function(g){return g.state==="done";}).length;
+
+  var list=$("simList"); list.innerHTML="";
+  SIM.dirs.forEach(function(g){
+    var row=document.createElement("div");
+    row.className="grow "+g.state;
+    var pct=(g.done/g.work*100).toFixed(0);
+    var st = g.state==="queued" ? "parked" : (g.state==="running" ? "running" : "done");
+    row.innerHTML =
+      '<span class="gname" title="'+esc(g.name)+'">g'+g.i+" "+esc(g.name)+"</span>"+
+      '<span class="gbar"><i style="width:'+pct+'%"></i></span>'+
+      '<span class="gstate">'+st+"</span>";
+    list.appendChild(row);
+  });
+
+  $("simAF").textContent=Math.floor(SIM.atom.f).toLocaleString();
+  $("simAD").textContent=Math.floor(SIM.atom.d).toLocaleString();
+  $("simAS").textContent=formatSize(Math.floor(SIM.atom.s));
+  $("simSF").textContent=Math.floor(SIM.samp.f).toLocaleString();
+  $("simSD").textContent=Math.floor(SIM.samp.d).toLocaleString();
+  $("simSS").textContent=formatSize(Math.floor(SIM.samp.s));
+
+  simGantt();
+  simStats();
+}
+function simGantt(){
+  var svg=$("simGantt");
+  var n=SIM.dirs.length;
+  var rowH=Math.max(9, Math.min(20, 170/n));
+  var H=n*rowH+30;
+  svg.setAttribute("viewBox","0 0 900 "+H);
+  var seqTotal=SIM.dirs.reduce(function(a,g){return a+g.work;},0);
+  var span=Math.max(SIM.t, SIM.dirs.reduce(function(a,g){return Math.max(a,g.work);},0), 1);
+  var scale=820/span;
+  var out="";
+  SIM.dirs.forEach(function(g,idx){
+    var y=idx*rowH+4;
+    out+='<rect x="62" y="'+y+'" width="820" height="'+(rowH-3)+'" rx="2" fill="rgba(127,127,127,.07)"/>';
+    if(g.start!==null){
+      var end = g.end!==null? g.end : SIM.t;
+      var x=62+g.start*scale, w=Math.max(1,(end-g.start)*scale);
+      var col = g.state==="done" ? "#51d0f0" : "#5fd08a";
+      out+='<rect x="'+x.toFixed(1)+'" y="'+y+'" width="'+w.toFixed(1)+'" height="'+(rowH-3)+
+           '" rx="2" fill="'+col+'" opacity="'+(g.state==="done"?".55":".85")+'"/>';
+    }
+    if(rowH>=11){
+      out+='<text x="56" y="'+(y+rowH-5)+'" text-anchor="end" font-family="ui-monospace,monospace" '+
+           'font-size="'+Math.min(10,rowH-3)+'" fill="#7c8b9c">g'+g.i+"</text>";
+    }
+  });
+  var cursorX=62+SIM.t*scale;
+  out+='<line x1="'+cursorX.toFixed(1)+'" y1="0" x2="'+cursorX.toFixed(1)+'" y2="'+(H-24)+
+       '" stroke="#f2994a" stroke-width="1" stroke-dasharray="3 3"/>';
+  out+='<text x="62" y="'+(H-8)+'" font-family="ui-monospace,monospace" font-size="10" fill="#7c8b9c">0 ms</text>';
+  out+='<text x="882" y="'+(H-8)+'" text-anchor="end" font-family="ui-monospace,monospace" font-size="10" fill="#7c8b9c">'+
+       Math.round(span)+" ms</text>";
+  svg.innerHTML=out;
+}
+function simStats(){
+  var seq=SIM.dirs.reduce(function(a,g){return a+g.work;},0);
+  var crit=SIM.dirs.reduce(function(a,g){return Math.max(a,g.work);},0);
+  var par=SIM.t;
+  $("simElapsed").textContent=Math.round(par)+" ms";
+  $("simSeq").textContent=Math.round(seq)+" ms";
+  $("simCrit").textContent=Math.round(crit)+" ms";
+  if(SIM.finished && par>0){
+    var sp=seq/par;
+    $("simSpeed").textContent=sp.toFixed(2)+"\u00d7";
+    $("simEff").textContent=Math.round(sp/SIM.slots*100)+"%";
+  }else{
+    $("simSpeed").textContent="\u2014";
+    $("simEff").textContent="\u2014";
+  }
+  var ins=$("simInsight");
+  if(!SIM.finished && !SIM.running && SIM.t===0){
+    ins.innerHTML="Press <b>run</b> to start the scan. "+SIM.dirs.length+" goroutines will contend for "+
+      SIM.slots+" semaphore slot"+(SIM.slots===1?"":"s")+".";
+  }else if(!SIM.finished){
+    if(SIM.queue.length){
+      ins.innerHTML="<b>"+SIM.queue.length+" goroutine"+(SIM.queue.length===1?" is":"s are")+
+        " parked</b> on <code>sem &lt;- struct{}{}</code> \u2014 created, but consuming no CPU. They wake in FIFO order as slots free.";
+    }else{
+      ins.innerHTML="All remaining goroutines hold a slot. The semaphore is no longer the bottleneck \u2014 wall time is now bounded by the slowest subtree.";
+    }
+  }else{
+    var sp2=seq/Math.max(par,1);
+    var eff=sp2/SIM.slots;
+    if(crit/par>0.85){
+      ins.innerHTML="<b>Critical-path bound.</b> One subtree took "+Math.round(crit)+" ms of the "+Math.round(par)+
+        " ms total, so extra cores cannot help. This is exactly the load-balancing limitation documented in the reference guide: work is split per top-level subdirectory, and <code>dirSizeRecursive</code> does not fan out further.";
+    }else if(eff>0.75){
+      ins.innerHTML="<b>Well balanced.</b> "+sp2.toFixed(2)+"\u00d7 speedup at "+Math.round(eff*100)+
+        "% core efficiency \u2014 the fan-out is paying for itself and the semaphore is keeping the I/O queue sane.";
+    }else{
+      ins.innerHTML="<b>Partially utilised.</b> "+sp2.toFixed(2)+"\u00d7 speedup at "+Math.round(eff*100)+
+        "% efficiency \u2014 there were not enough subdirectories to keep "+SIM.slots+" slots busy, so cores idled near the end. Try raising the subdirectory count.";
+    }
+  }
+}
+function simLoop(){
+  if(!SIM.running){ SIM.raf=null; return; }
+  simTick(16*SIM.speed);
+  simRender();
+  SIM.raf=requestAnimationFrame(simLoop);
+}
+$("simPlay").addEventListener("click",function(){
+  if(SIM.finished) simBuild();
+  SIM.running=!SIM.running;
+  this.textContent = SIM.running? "\u2016 pause" : "\u25b6 run";
+  this.classList.toggle("on",SIM.running);
+  if(SIM.running && !SIM.raf) SIM.raf=requestAnimationFrame(simLoop);
+});
+$("simStep").addEventListener("click",function(){
+  SIM.running=false; $("simPlay").textContent="\u25b6 run"; $("simPlay").classList.remove("on");
+  simTick(50); simRender();
+});
+$("simReset").addEventListener("click",function(){
+  SIM.running=false; $("simPlay").textContent="\u25b6 run"; $("simPlay").classList.remove("on");
+  simBuild();
+});
+$("simCpu").addEventListener("input",function(){
+  SIM.cpu=+this.value; $("simCpuV").textContent=this.value;
+  var capped=SIM.cpu>16;
+  $("simSlotsV").textContent=Math.min(SIM.cpu,16);
+  $("simCapNote").innerHTML = capped
+    ? ' <span style="color:var(--orange)">\u2190 hard cap engaged: '+SIM.cpu+' cores, still 16 slots</span>'
+    : "";
+  SIM.running=false; $("simPlay").textContent="\u25b6 run"; $("simPlay").classList.remove("on");
+  simBuild();
+});
+$("simDirs").addEventListener("input",function(){
+  SIM.nDirs=+this.value; $("simDirsV").textContent=this.value;
+  SIM.running=false; $("simPlay").textContent="\u25b6 run"; $("simPlay").classList.remove("on");
+  simBuild();
+});
+document.querySelectorAll(".btn.skew").forEach(function(b){
+  b.addEventListener("click",function(){
+    document.querySelectorAll(".btn.skew").forEach(function(x){x.classList.remove("on");});
+    this.classList.add("on");
+    SIM.skew=this.dataset.skew;
+    SIM.running=false; $("simPlay").textContent="\u25b6 run"; $("simPlay").classList.remove("on");
+    simBuild();
+  });
+});
+document.querySelectorAll(".btn.spd").forEach(function(b){
+  b.addEventListener("click",function(){
+    document.querySelectorAll(".btn.spd").forEach(function(x){x.classList.remove("on");});
+    this.classList.add("on");
+    SIM.speed=parseFloat(this.dataset.spd);
+  });
+});
+simBuild();
+
+/* ============================================================
+   WIDGET 4 — component explorer
+   ============================================================ */
+var FILES = [
+  { f:"main.go", loc:"~70 lines", role:"Entry point & flags",
+    sub:"Parses flags, validates the target directory, wires up CPU profiling, and hands a fresh Model to the Bubble Tea runtime. The only file that talks to os.Args.",
+    syms:["main()","version (ldflags)","--profile","--version","tea.NewProgram"],
+    reads:"os.Args, os.Stat", writes:"cpu.prof",
+    change:["Add a CLI flag or subcommand","Change program options such as alt-screen or mouse mode","Adjust startup validation"],
+    rel:["model.go"], ref:"architecture.html#components" },
+
+  { f:"model.go", loc:"~1000 lines", role:"State, Update, View",
+    sub:"The heart of the application. Holds every field of UI state, implements the message switch, all navigation, external process launching, and the per-OS trash implementations. If behaviour changes, it almost certainly changes here.",
+    syms:["Model","Init()","Update()","View()","applyFilter()","moveCursor()","navigateIn/Up/To()","lineCountForSelected()","openPath()","trashCmd()","hexView()","quickLook()"],
+    reads:"tea.Msg of every kind", writes:"the entire Model",
+    change:["Handle a new message type","Add a keybinding behaviour","Change navigation or cursor-memory rules","Add a platform-specific action"],
+    rel:["scanner.go","cache.go","render.go","keys.go","entry.go"], ref:"architecture.html#architecture" },
+
+  { f:"scanner.go", loc:"~300 lines", role:"Filesystem traversal",
+    sub:"Every syscall that walks the tree lives here, along with all three bounded-concurrency fan-outs and the atomic progress block. Nothing in this file touches the Model \u2014 it only produces messages.",
+    syms:["scanDirectory()","dirSizeRecursive()","smartRefreshCmd()","countLinesCmd()","countAllLinesCmd()","ScanProgress","scanResultMsg"],
+    reads:"os.ReadDir, DirEntry.Info", writes:"tea.Msg values only",
+    change:["Tune concurrency limits or thresholds","Add cancellation via context.Context","Report on-disk size instead of apparent size","Skip or special-case certain paths"],
+    rel:["model.go","utils.go","entry.go"], ref:"architecture.html#scanner" },
+
+  { f:"cache.go", loc:"~80 lines", role:"Bounded LRU",
+    sub:"A textbook intrusive LRU: container/list for recency, a map for O(1) lookup, one mutex covering both. Values are whole scanResultMsg structs, so a hit needs zero recomputation.",
+    syms:["lruCache","Get()","Put()","Delete()","evictOldest()","newLRUCache(100)"],
+    reads:"path keys", writes:"cached scanResultMsg",
+    change:["Change capacity or eviction policy","Add disk persistence","Add TTL or validation on hit"],
+    rel:["model.go","scanner.go"], ref:"architecture.html#cache" },
+
+  { f:"entry.go", loc:"~85 lines", role:"Domain model",
+    sub:"Defines FileEntry \u2014 the single struct the whole UI renders from \u2014 plus sorting, the allocation-reusing filter, and the ASCII-fast fuzzy matcher.",
+    syms:["FileEntry","ViewFilter","SortBySize()","FilterEntries()","filterEntriesInto()","fuzzyMatch()","toLower()"],
+    reads:"\u2014", writes:"\u2014 (pure functions)",
+    change:["Add a field to each row","Add a sort mode","Change search semantics"],
+    rel:["model.go","render.go","scanner.go"], ref:"architecture.html#datamodel" },
+
+  { f:"render.go", loc:"~310 lines", role:"Presentation",
+    sub:"Turns model state into strings: adaptive header, the fixed-plus-elastic row layout, the footer key bar, and the centred help overlay. Written to avoid allocation in the row hot path.",
+    syms:["renderHeader()","headerLineCount()","buildStatsLine()","renderRow()","renderFooter()","renderHelp()","formatCount()","styledSeg()"],
+    reads:"Model (by value)", writes:"strings",
+    change:["Add or reorder a column","Change the header or footer","Restyle the help overlay"],
+    rel:["styles.go","model.go","utils.go"], ref:"architecture.html#render" },
+
+  { f:"styles.go", loc:"~150 lines", role:"Theme",
+    sub:"All Lipgloss colours and styles, declared at package level so no style object is ever constructed per row. Includes the pre-built bar-colour map and the percentage thresholds.",
+    syms:["colorRed/Orange/Yellow/Green/Cyan\u2026","headerStyle","rowNameSelStyle","barStyles map","barColor()"],
+    reads:"\u2014", writes:"\u2014 (init-time only)",
+    change:["Retheme the UI","Change bar colour thresholds","Add a style for a new element"],
+    rel:["render.go"], ref:"architecture.html#render" },
+
+  { f:"keys.go", loc:"~120 lines", role:"Input bindings",
+    sub:"One declarative KeyMap struct. Each binding carries both its keys and its help text, so the footer, the help overlay and the actual behaviour cannot drift out of sync.",
+    syms:["KeyMap","DefaultKeyMap()","key.NewBinding","key.WithHelp"],
+    reads:"\u2014", writes:"\u2014",
+    change:["Rebind a key","Add a new action's binding","Support alternate key sequences"],
+    rel:["model.go","render.go"], ref:"architecture.html#keys" },
+
+  { f:"utils.go", loc:"~240 lines", role:"Primitives",
+    sub:"Formatting, visual-width-aware truncation and padding, the pooled-buffer line counter, binary detection, and bar generation. The lowest layer \u2014 everything else depends on it.",
+    syms:["formatSize()","shortenPath()","truncateStrVisual()","padRightVisual()","countLines()","isBinaryContent()","isBinaryExt()","barString()","bufPool"],
+    reads:"file contents (chunked)", writes:"\u2014",
+    change:["Change size or count formatting","Adjust the binary heuristic","Change the line-count buffer or limits"],
+    rel:["render.go","scanner.go","entry.go"], ref:"architecture.html#linecount" }
+];
+var mapSel=1;
+function renderMap(){
+  var grid=$("mapGrid");
+  if(!grid.children.length){
+    FILES.forEach(function(f,i){
+      var b=document.createElement("button");
+      b.className="mapcard";
+      b.innerHTML='<div class="mf">'+esc(f.f)+'</div><div class="mr">'+esc(f.role)+
+                  '</div><div class="mloc">'+esc(f.loc)+"</div>";
+      b.addEventListener("click",function(){ mapSel=i; renderMap(); });
+      grid.appendChild(b);
+    });
+  }
+  var sel=FILES[mapSel];
+  Array.prototype.forEach.call(grid.children,function(c,i){
+    c.classList.toggle("act", i===mapSel);
+    c.classList.toggle("rel", i!==mapSel && sel.rel.indexOf(FILES[i].f)>=0);
+  });
+  var d=$("mapDetail");
+  var symHTML=sel.syms.map(function(s){return '<span class="sym">'+esc(s)+"</span>";}).join("");
+  var relHTML=sel.rel.map(function(r){return '<button class="relchip" data-f="'+esc(r)+'">'+esc(r)+"</button>";}).join("");
+  var chHTML=sel.change.map(function(c){return "<li>"+esc(c)+"</li>";}).join("");
+  d.innerHTML =
+    "<h4>"+esc(sel.f)+"</h4>"+
+    '<div class="sub">'+esc(sel.sub)+"</div>"+
+    '<div class="ctrl-lbl">KEY SYMBOLS</div><div class="symlist">'+symHTML+"</div>"+
+    '<dl class="dl">'+
+      "<dt>reads</dt><dd>"+esc(sel.reads)+"</dd>"+
+      "<dt>writes</dt><dd>"+esc(sel.writes)+"</dd>"+
+      "<dt>size</dt><dd>"+esc(sel.loc)+"</dd>"+
+    "</dl>"+
+    '<div class="ctrl-lbl" style="margin-top:14px">CHANGE THIS FILE WHEN YOU WANT TO\u2026</div><ul>'+chHTML+"</ul>"+
+    '<div class="ctrl-lbl" style="margin-top:14px">CLOSELY RELATED</div><div class="relchips">'+relHTML+"</div>"+
+    '<p style="margin-top:14px;margin-bottom:0"><a href="'+sel.ref+'">Read the reference section for '+esc(sel.f)+" \u2192</a></p>";
+  d.querySelectorAll(".relchip").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      var name=this.dataset.f;
+      for(var i=0;i<FILES.length;i++){ if(FILES[i].f===name){ mapSel=i; renderMap(); return; } }
+    });
+  });
+}
+renderMap();
+
+/* ============================================================
+   page chrome
+   ============================================================ */
+var links=Array.prototype.slice.call(document.querySelectorAll("nav.toc a"));
+var targets=links.map(function(a){return document.getElementById(a.getAttribute("href").slice(1));}).filter(Boolean);
+function spy(){
+  var best=null,bestTop=-Infinity;
+  targets.forEach(function(t){
+    var top=t.getBoundingClientRect().top-120;
+    if(top<=0&&top>bestTop){bestTop=top;best=t;}
+  });
+  links.forEach(function(a){ a.classList.toggle("active", !!best && a.getAttribute("href")==="#"+best.id); });
+}
+var bar=$("progress");
+function prog(){
+  var h=document.documentElement;
+  var max=h.scrollHeight-h.clientHeight;
+  bar.style.width=(max>0?(h.scrollTop/max)*100:0)+"%";
+}
+var ticking=false;
+window.addEventListener("scroll",function(){
+  if(ticking) return; ticking=true;
+  requestAnimationFrame(function(){ spy(); prog(); ticking=false; });
+},{passive:true});
+spy(); prog();
+
+var root=document.documentElement, saved=null;
+try{ saved=localStorage.getItem("dirgo-doc-theme"); }catch(e){}
+if(saved) root.setAttribute("data-theme",saved);
+$("themeBtn").addEventListener("click",function(){
+  var next=root.getAttribute("data-theme")==="light"?"dark":"light";
+  root.setAttribute("data-theme",next);
+  try{ localStorage.setItem("dirgo-doc-theme",next); }catch(e){}
+});
+})();
+</script>
+</body>
+</html>
