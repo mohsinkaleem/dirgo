@@ -43,6 +43,7 @@ type Model struct {
 	scanProgFiles int64 // snapshot for display
 	scanProgDirs  int64
 	scanProgSize  int64
+	scanElapsed   time.Duration
 
 	// View
 	width  int
@@ -110,7 +111,7 @@ func NewModel(path string) Model {
 		cursorHistory: make(map[string]string),
 		cache:         cache,
 		viewBuf:       &strings.Builder{},
-		scanProg:      &ScanProgress{},
+		scanProg:      newScanProgress(),
 	}
 }
 
@@ -147,12 +148,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scanResultMsg:
 		// Phase 1 complete — populate entries immediately
 		m.cache.Put(msg.path, msg)
+		if msg.path != m.path {
+			// Result for a directory we already navigated away from; keep it cached only.
+			return m, nil
+		}
 		m.loading = false
 		m.fromCache = false
 		m.scanProg = nil
 		m.scanProgFiles = 0
 		m.scanProgDirs = 0
 		m.scanProgSize = 0
+		m.scanElapsed = 0
 		m.path = msg.path
 		m.entries = msg.entries
 		m.totalSize = msg.totalSize
@@ -197,11 +203,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case scanUpToDateMsg:
 		// Smart refresh: nothing changed
+		if msg.path != m.path {
+			return m, nil
+		}
 		m.loading = false
+		m.fromCache = false // modtime check confirmed the listing is current
+		m.scanProg = nil
+		m.scanProgFiles = 0
+		m.scanProgDirs = 0
+		m.scanProgSize = 0
+		m.scanElapsed = 0
 		return m, nil
 
 	case scanErrorMsg:
+		// An empty path means the error did not come from a directory scan.
+		if msg.path != "" && msg.path != m.path {
+			return m, nil
+		}
 		m.loading = false
+		m.scanProg = nil
+		m.scanProgFiles = 0
+		m.scanProgDirs = 0
+		m.scanProgSize = 0
+		m.scanElapsed = 0
 		m.err = msg.err
 		return m, nil
 
@@ -253,6 +277,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.lineCountForSelected()
 
 	case lineCountMsg:
+		if msg.dir != m.path {
+			return m, nil
+		}
 		// Update line count for matching entry
 		for i := range m.entries {
 			if m.entries[i].Name == msg.name {
@@ -279,7 +306,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case batchLineCountMsg:
-		// Batch line count completed (L key)
+		// Batch line count completed (s key)
+		if msg.Dir != m.path {
+			return m, nil
+		}
 		for i := range m.entries {
 			if c, ok := msg.Counts[m.entries[i].Name]; ok {
 				m.entries[i].LineCount = c
@@ -310,6 +340,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scanProgFiles = m.scanProg.Files.Load()
 				m.scanProgDirs = m.scanProg.Dirs.Load()
 				m.scanProgSize = m.scanProg.Size.Load()
+				m.scanElapsed = time.Since(m.scanProg.Start)
 			}
 			cmds = append(cmds, cmd)
 		}
@@ -413,31 +444,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.quickLook()
 
 		case key.Matches(msg, m.keys.PageUp):
-			pageSize := m.height - 5
-			if pageSize < 1 {
-				pageSize = 1
-			}
-			m = m.moveCursor(-pageSize)
+			m = m.moveCursor(-m.listHeight())
 			return m, m.lineCountForSelected()
 
 		case key.Matches(msg, m.keys.PageDown):
-			pageSize := m.height - 5
-			if pageSize < 1 {
-				pageSize = 1
-			}
-			m = m.moveCursor(pageSize)
+			m = m.moveCursor(m.listHeight())
 			return m, m.lineCountForSelected()
 
 		case key.Matches(msg, m.keys.Refresh):
 			// Smart refresh: check modtime before full rescan
 			m.err = nil
-			m.scanProg = &ScanProgress{}
-			if cached, ok := m.cache.Get(m.path); ok {
-				m.loading = true
-				return m, tea.Batch(smartRefreshCmd(m.path, cached, m.scanProg), m.spinner.Tick)
+			cached, ok := m.cache.Get(m.path)
+			cmd := m.startScan(m.path)
+			if ok {
+				cmd = tea.Batch(smartRefreshCmd(m.path, cached, m.scanProg), m.spinner.Tick)
 			}
-			m.loading = true
-			return m, tea.Batch(scanDirectory(m.path, m.scanProg), m.spinner.Tick)
+			return m, cmd
 
 		case key.Matches(msg, m.keys.TopView):
 			m.topMode = !m.topMode
@@ -496,11 +518,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, m.keys.Escape):
-			if m.topMode {
+			// Clear whichever narrowing is active; a leftover search filter is
+			// otherwise unreachable once search mode has been closed with Enter.
+			switch {
+			case m.searchInput.Value() != "":
+				m.searchInput.SetValue("")
+			case m.topMode:
 				m.topMode = false
-				m.applyFilter()
+			default:
+				return m, nil
 			}
-			return m, nil
+			m.applyFilter()
+			m.cursor = 0
+			m.offset = 0
+			return m, m.lineCountForSelected()
 		}
 	}
 
@@ -520,7 +551,6 @@ func (m Model) View() string {
 	m.viewBuf.Reset()
 
 	// Header (1 or 2 lines depending on path length)
-	hdrLines := headerLineCount(m)
 	m.viewBuf.WriteString(renderHeader(m))
 	m.viewBuf.WriteString("\n")
 
@@ -528,19 +558,11 @@ func (m Model) View() string {
 	m.viewBuf.WriteString(m.cachedSep)
 	m.viewBuf.WriteString("\n")
 
-	// Reserved: header (hdrLines) + sep (1) + footer sep (1) + footer (1) + padding (1) = 4 + hdrLines
-	listHeight := m.height - 4 - hdrLines
-	if listHeight < 1 {
-		listHeight = 1
-	}
+	listHeight := m.listHeight()
 
 	if m.loading {
-		spinnerView := m.spinner.View() + " Scanning..."
-		if m.scanProgFiles > 0 || m.scanProgDirs > 0 {
-			spinnerView += fmt.Sprintf("\n\n  %d files · %d dirs · %s scanned",
-				m.scanProgFiles, m.scanProgDirs, formatSize(m.scanProgSize))
-		}
-		lines := strings.Count(spinnerView, "\n") + 1
+		block := renderScanning(m)
+		lines := strings.Count(block, "\n") + 1
 		padTop := (listHeight - lines) / 2
 		if padTop < 0 {
 			padTop = 0
@@ -548,7 +570,7 @@ func (m Model) View() string {
 		for i := 0; i < padTop; i++ {
 			m.viewBuf.WriteString("\n")
 		}
-		m.viewBuf.WriteString(lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(spinnerView))
+		m.viewBuf.WriteString(lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(block))
 		m.viewBuf.WriteString("\n")
 		for i := padTop + lines; i < listHeight; i++ {
 			m.viewBuf.WriteString("\n")
@@ -605,6 +627,17 @@ func (m Model) View() string {
 
 // --- helpers ---
 
+// startScan resets progress state and returns the commands driving a fresh scan.
+func (m *Model) startScan(path string) tea.Cmd {
+	m.loading = true
+	m.scanProg = newScanProgress()
+	m.scanProgFiles = 0
+	m.scanProgDirs = 0
+	m.scanProgSize = 0
+	m.scanElapsed = 0
+	return tea.Batch(scanDirectory(path, m.scanProg), m.spinner.Tick)
+}
+
 func (m Model) moveCursor(delta int) Model {
 	if len(m.filtered) == 0 {
 		return m
@@ -620,16 +653,29 @@ func (m Model) moveCursor(delta int) Model {
 	return m
 }
 
-func (m *Model) ensureVisible() {
-	listHeight := m.height - 5
-	if listHeight < 1 {
-		listHeight = 1
+// listHeight returns the number of rows available for the entry list.
+// Reserved: header (1-2) + sep (1) + footer sep (1) + footer (1) + padding (1).
+func (m Model) listHeight() int {
+	h := m.height - 4 - headerLineCount(m)
+	if h < 1 {
+		h = 1
 	}
+	return h
+}
+
+func (m *Model) ensureVisible() {
+	listHeight := m.listHeight()
 	if m.cursor < m.offset {
 		m.offset = m.cursor
 	}
 	if m.cursor >= m.offset+listHeight {
 		m.offset = m.cursor - listHeight + 1
+	}
+	if maxOffset := len(m.filtered) - listHeight; m.offset > maxOffset {
+		m.offset = maxOffset
+	}
+	if m.offset < 0 {
+		m.offset = 0
 	}
 }
 
@@ -699,9 +745,7 @@ func (m Model) navigateUp() (Model, tea.Cmd) {
 	}
 	// For async scan, remember to restore cursor when results arrive
 	m.pendingCursorEntry = childName
-	m.loading = true
-	m.scanProg = &ScanProgress{}
-	return m, tea.Batch(scanDirectory(parent, m.scanProg), m.spinner.Tick)
+	return m, m.startScan(parent)
 }
 
 func (m Model) navigateIn() (Model, tea.Cmd) {
@@ -761,9 +805,7 @@ func (m Model) navigateIn() (Model, tea.Cmd) {
 	if pendingEntry != "" {
 		m.pendingCursorEntry = pendingEntry
 	}
-	m.loading = true
-	m.scanProg = &ScanProgress{}
-	return m, tea.Batch(scanDirectory(target, m.scanProg), m.spinner.Tick)
+	return m, m.startScan(target)
 }
 
 func (m Model) navigateTo(target string) (Model, tea.Cmd) {
@@ -817,9 +859,7 @@ func (m Model) navigateTo(target string) (Model, tea.Cmd) {
 		m.applyFilter()
 		return m, m.lineCountForSelected()
 	}
-	m.loading = true
-	m.scanProg = &ScanProgress{}
-	return m, tea.Batch(scanDirectory(target, m.scanProg), m.spinner.Tick)
+	return m, m.startScan(target)
 }
 
 func (m *Model) computeDeepTotals() {
@@ -853,7 +893,9 @@ func (m Model) quickLook() (Model, tea.Cmd) {
 			}
 		}
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", targetPath)
+		// explorer.exe launches the default handler without going through cmd.exe,
+		// which would interpret &, |, ^ and %VAR% in the path.
+		cmd = exec.Command("explorer", targetPath)
 	}
 
 	if cmd == nil {
@@ -891,8 +933,10 @@ func (m Model) hexView() (Model, tea.Cmd) {
 
 	var c *exec.Cmd
 	if runtime.GOOS == "windows" {
-		// Windows: use PowerShell's Format-Hex
-		c = exec.Command("powershell", "-Command", fmt.Sprintf("Format-Hex -Path '%s' | more", targetPath))
+		// Windows: use PowerShell's Format-Hex. Single quotes are escaped by doubling,
+		// and -LiteralPath stops PowerShell from glob-expanding [] in the path.
+		c = exec.Command("powershell", "-NoProfile", "-Command",
+			fmt.Sprintf("Format-Hex -LiteralPath '%s' | more", strings.ReplaceAll(targetPath, "'", "''")))
 	} else {
 		// Find hex dump tool
 		var hexCmd string
@@ -913,8 +957,9 @@ func (m Model) hexView() (Model, tea.Cmd) {
 			pager = p
 		}
 
-		// Use shell pipe: xxd file | less
-		shellCmd := fmt.Sprintf("%s %q | %s", hexCmd, targetPath, pager)
+		// Use shell pipe: xxd file | less. The path must be shell-quoted —
+		// %q leaves $ and ` live inside sh double quotes.
+		shellCmd := fmt.Sprintf("%s %s | %s", hexCmd, shellQuote(targetPath), pager)
 		c = exec.Command("sh", "-c", shellCmd)
 	}
 
@@ -944,7 +989,9 @@ func openPath(path string) {
 	case "darwin":
 		cmd = exec.Command("open", path)
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", path)
+		// explorer.exe launches the default handler without going through cmd.exe,
+		// which would interpret &, |, ^ and %VAR% in the path.
+		cmd = exec.Command("explorer", path)
 	default: // linux, freebsd, etc.
 		// Try openers in order; some minimal Linux installs lack xdg-open
 		for _, opener := range []string{"xdg-open", "sensible-open", "gnome-open"} {

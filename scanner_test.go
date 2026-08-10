@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 )
 
@@ -144,6 +145,26 @@ func TestCountAllLines(t *testing.T) {
 		if count != 2 {
 			t.Errorf("file %s: expected 2 lines, got %d", name, count)
 		}
+	}
+}
+
+func TestParallelForRunsEveryIndexOnce(t *testing.T) {
+	const n = 5000
+	hits := make([]int32, n)
+	parallelFor(n, 8, func(i int) {
+		atomic.AddInt32(&hits[i], 1)
+	})
+	for i, h := range hits {
+		if h != 1 {
+			t.Fatalf("index %d ran %d times, want 1", i, h)
+		}
+	}
+	// Degenerate inputs must not spawn work or deadlock.
+	parallelFor(0, 8, func(int) { t.Fatal("fn called for n=0") })
+	ran := 0
+	parallelFor(1, 0, func(int) { ran++ })
+	if ran != 1 {
+		t.Fatalf("workers=0 ran fn %d times, want 1", ran)
 	}
 }
 

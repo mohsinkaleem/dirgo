@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -171,11 +172,69 @@ func countLines(path string, maxSize int64) (int, bool, error) {
 	return count, false, nil
 }
 
+// formatCountSep renders an integer with thousands separators: 400850 → "400,850".
+func formatCountSep(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	neg := strings.HasPrefix(s, "-")
+	if neg {
+		s = s[1:]
+	}
+	if len(s) <= 3 {
+		if neg {
+			return "-" + s
+		}
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + len(s)/3 + 1)
+	if neg {
+		b.WriteByte('-')
+	}
+	lead := len(s) % 3
+	if lead > 0 {
+		b.WriteString(s[:lead])
+	}
+	for i := lead; i < len(s); i += 3 {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
+
+// formatDuration renders an elapsed time compactly: "0.4s", "12s", "3m 05s".
+func formatDuration(d time.Duration) string {
+	switch {
+	case d < time.Second:
+		return strconv.FormatFloat(d.Seconds(), 'f', 1, 64) + "s"
+	case d < time.Minute:
+		return strconv.Itoa(int(d.Seconds())) + "s"
+	default:
+		m := int(d.Minutes())
+		s := int(d.Seconds()) % 60
+		return strconv.Itoa(m) + "m " + padLeftZero(s) + "s"
+	}
+}
+
+func padLeftZero(n int) string {
+	if n < 10 {
+		return "0" + strconv.Itoa(n)
+	}
+	return strconv.Itoa(n)
+}
+
+// shellQuote wraps s in single quotes so /bin/sh treats it as one literal
+// argument. Embedded single quotes are closed, escaped, and reopened.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // isBinaryExt returns true if the file extension suggests a binary file.
 func isBinaryExt(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
 	switch ext {
-	case ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg",
+	case ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
 		".mp3", ".mp4", ".wav", ".avi", ".mov", ".mkv", ".flac", ".ogg",
 		".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar", ".zst",
 		".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".a",
@@ -201,7 +260,7 @@ func barString(percentage float64, maxWidth int) string {
 		filled = maxWidth
 	}
 	var b strings.Builder
-	b.Grow(maxWidth*3 + (maxWidth - filled)) // █ is 3 bytes UTF-8
+	b.Grow(filled*3 + (maxWidth - filled)) // █ is 3 bytes UTF-8
 	for i := 0; i < filled; i++ {
 		b.WriteRune('█')
 	}

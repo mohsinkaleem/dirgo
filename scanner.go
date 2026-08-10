@@ -24,19 +24,23 @@ type scanResultMsg struct {
 	dirModTime time.Time
 }
 
-// scanErrorMsg is sent when a directory scan fails.
+// scanErrorMsg is sent when a directory scan fails. An empty path means the
+// error did not come from a directory scan and always applies.
 type scanErrorMsg struct {
-	err error
+	path string
+	err  error
 }
 
 // lineCountMsg is sent when line counting for a single file completes.
 type lineCountMsg struct {
+	dir   string
 	name  string
 	lines int
 }
 
 // batchLineCountMsg is sent when batch "count all" completes.
 type batchLineCountMsg struct {
+	Dir    string
 	Counts map[string]int // name → lineCount
 }
 
@@ -46,11 +50,17 @@ type scanUpToDateMsg struct {
 }
 
 // ScanProgress holds live progress counters updated by the scanner goroutine.
-// Read via atomic loads from the UI goroutine (spinner tick).
+// Read via atomic loads from the UI goroutine (spinner tick). Start is written
+// once before the scan goroutine launches and is read-only thereafter.
 type ScanProgress struct {
 	Files atomic.Int64
 	Dirs  atomic.Int64
 	Size  atomic.Int64
+	Start time.Time
+}
+
+func newScanProgress() *ScanProgress {
+	return &ScanProgress{Start: time.Now()}
 }
 
 // --- Commands ---
@@ -62,19 +72,19 @@ func scanDirectory(path string, prog *ScanProgress) tea.Cmd {
 	return func() tea.Msg {
 		absPath, err := filepath.Abs(path)
 		if err != nil {
-			return scanErrorMsg{err: err}
+			return scanErrorMsg{path: path, err: err}
 		}
 
 		// Stat the directory itself for modtime
 		dirInfo, err := os.Stat(absPath)
 		if err != nil {
-			return scanErrorMsg{err: err}
+			return scanErrorMsg{path: absPath, err: err}
 		}
 		dirModTime := dirInfo.ModTime()
 
 		dirEntries, err := os.ReadDir(absPath)
 		if err != nil {
-			return scanErrorMsg{err: err}
+			return scanErrorMsg{path: absPath, err: err}
 		}
 
 		entries := make([]FileEntry, 0, len(dirEntries))
@@ -136,24 +146,15 @@ func scanDirectory(path string, prog *ScanProgress) tea.Cmd {
 				childDirs  int
 			}
 			results := make([]dirResult, len(dirEntryIndices))
-			var wg sync.WaitGroup
-			sem := make(chan struct{}, minInt(runtime.NumCPU(), 16))
 
-			for ri, di := range dirEntryIndices {
-				wg.Add(1)
-				go func(resultIdx int, info dirInfo2) {
-					defer wg.Done()
-					sem <- struct{}{}
-					defer func() { <-sem }()
-
-					dirPath := filepath.Join(absPath, info.name)
-					// Use os.ReadDir + manual recursion instead of filepath.WalkDir
-					// to reduce syscall overhead (one getdirentries per dir vs Lstat per entry)
-					size, files, dirs := dirSizeRecursive(dirPath, prog)
-					results[resultIdx] = dirResult{index: info.index, size: size, childFiles: files, childDirs: dirs}
-				}(ri, di)
-			}
-			wg.Wait()
+			parallelFor(len(dirEntryIndices), minInt(runtime.NumCPU(), 16), func(ri int) {
+				info := dirEntryIndices[ri]
+				dirPath := filepath.Join(absPath, info.name)
+				// Use os.ReadDir + manual recursion instead of filepath.WalkDir
+				// to reduce syscall overhead (one getdirentries per dir vs Lstat per entry)
+				size, files, dirs := dirSizeRecursive(dirPath, prog)
+				results[ri] = dirResult{index: info.index, size: size, childFiles: files, childDirs: dirs}
+			})
 
 			// Apply results back to entries
 			for _, r := range results {
@@ -167,30 +168,26 @@ func scanDirectory(path string, prog *ScanProgress) tea.Cmd {
 		// Stat files — parallel if large directory
 		if len(fileEntries) > 20 {
 			results := make([]FileEntry, len(fileEntries))
-			var wg sync.WaitGroup
-			sem := make(chan struct{}, runtime.NumCPU())
-			for idx, de := range fileEntries {
-				wg.Add(1)
-				go func(i int, d os.DirEntry) {
-					defer wg.Done()
-					sem <- struct{}{}
-					defer func() { <-sem }()
-					name := d.Name()
-					e := FileEntry{
-						Name:      name,
-						IsHidden:  strings.HasPrefix(name, "."),
-						IsBinary:  isBinaryExt(name),
-						IsSymlink: d.Type()&os.ModeSymlink != 0,
-					}
-					info, err := d.Info()
-					if err == nil {
-						e.Size = info.Size()
-						e.ModTime = info.ModTime()
-					}
-					results[i] = e
-				}(idx, de)
-			}
-			wg.Wait()
+			parallelFor(len(fileEntries), runtime.NumCPU(), func(i int) {
+				d := fileEntries[i]
+				name := d.Name()
+				e := FileEntry{
+					Name:      name,
+					IsHidden:  strings.HasPrefix(name, "."),
+					IsBinary:  isBinaryExt(name),
+					IsSymlink: d.Type()&os.ModeSymlink != 0,
+				}
+				info, err := d.Info()
+				if err == nil {
+					e.Size = info.Size()
+					e.ModTime = info.ModTime()
+				}
+				if prog != nil {
+					prog.Files.Add(1)
+					prog.Size.Add(e.Size)
+				}
+				results[i] = e
+			})
 			for _, e := range results {
 				totalFiles++
 				totalSize += e.Size
@@ -255,7 +252,7 @@ func countLinesCmd(dir, name string) tea.Cmd {
 	return func() tea.Msg {
 		path := filepath.Join(dir, name)
 		lines, _, _ := countLines(path, 10*1024*1024) // 10MB max
-		return lineCountMsg{name: name, lines: lines}
+		return lineCountMsg{dir: dir, name: name, lines: lines}
 	}
 }
 
@@ -263,33 +260,59 @@ func countLinesCmd(dir, name string) tea.Cmd {
 // non-directory entries. Uses bounded concurrency.
 func countAllLinesCmd(entries []FileEntry, dir string) tea.Cmd {
 	return func() tea.Msg {
-		counts := make(map[string]int)
-		var mu sync.Mutex
-		var wg sync.WaitGroup
-		sem := make(chan struct{}, runtime.NumCPU())
-
+		names := make([]string, 0, len(entries))
 		for _, e := range entries {
 			if e.IsDir || e.IsBinary {
 				continue
 			}
-			wg.Add(1)
-			go func(name string) {
-				defer wg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-				path := filepath.Join(dir, name)
-				lines, isBin, _ := countLines(path, 10*1024*1024)
-				if !isBin && lines > 0 {
-					mu.Lock()
-					counts[name] = lines
-					mu.Unlock()
-				}
-			}(e.Name)
+			names = append(names, e.Name)
 		}
-		wg.Wait()
 
-		return batchLineCountMsg{Counts: counts}
+		counts := make(map[string]int, len(names))
+		var mu sync.Mutex
+		parallelFor(len(names), runtime.NumCPU(), func(i int) {
+			name := names[i]
+			lines, isBin, _ := countLines(filepath.Join(dir, name), 10*1024*1024)
+			if !isBin && lines > 0 {
+				mu.Lock()
+				counts[name] = lines
+				mu.Unlock()
+			}
+		})
+
+		return batchLineCountMsg{Dir: dir, Counts: counts}
 	}
+}
+
+// parallelFor runs fn(i) for every i in [0, n) using at most workers goroutines.
+// Unlike a goroutine-per-item fan-out, this keeps memory flat on directories
+// with hundreds of thousands of entries.
+func parallelFor(n, workers int, fn func(i int)) {
+	if n <= 0 {
+		return
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > n {
+		workers = n
+	}
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= n {
+					return
+				}
+				fn(i)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // dirSizeRecursive computes the total size, file count, and subdirectory count

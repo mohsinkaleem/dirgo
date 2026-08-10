@@ -107,6 +107,19 @@ var (
 	spinnerStyle = lipgloss.NewStyle().
 			Foreground(colorCyan)
 
+	scanTitleStyle = lipgloss.NewStyle().
+			Foreground(colorCyan).
+			Bold(true)
+
+	scanPathStyle = lipgloss.NewStyle().
+			Foreground(colorFg)
+
+	scanStatStyle = lipgloss.NewStyle().
+			Foreground(colorWhite)
+
+	scanDimStyle = lipgloss.NewStyle().
+			Foreground(colorDim)
+
 	helpTitleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(colorCyan).

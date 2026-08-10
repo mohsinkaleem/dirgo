@@ -2,9 +2,11 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- Functional tests ---
@@ -190,6 +192,63 @@ func TestPadLeftRight(t *testing.T) {
 	// Already wide enough
 	if got := padLeft("hello", 3); got != "hello" {
 		t.Errorf("padLeft overflow: got %q", got)
+	}
+}
+
+func TestFormatCountSep(t *testing.T) {
+	tests := map[int64]string{
+		0:         "0",
+		7:         "7",
+		999:       "999",
+		1000:      "1,000",
+		41140:     "41,140",
+		400850:    "400,850",
+		1234567:   "1,234,567",
+		-400850:   "-400,850",
+		999999999: "999,999,999",
+	}
+	for in, want := range tests {
+		if got := formatCountSep(in); got != want {
+			t.Errorf("formatCountSep(%d) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := map[time.Duration]string{
+		400 * time.Millisecond:   "0.4s",
+		time.Second:              "1s",
+		12400 * time.Millisecond: "12s",
+		59 * time.Second:         "59s",
+		90 * time.Second:         "1m 30s",
+		125 * time.Second:        "2m 05s",
+	}
+	for in, want := range tests {
+		if got := formatDuration(in); got != want {
+			t.Errorf("formatDuration(%v) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestShellQuoteResistsInjection verifies that filenames containing shell
+// metacharacters are passed to `sh -c` as inert literals.
+func TestShellQuoteResistsInjection(t *testing.T) {
+	names := []string{
+		`$(id)`,
+		"`id`",
+		`a"; id; echo "b`,
+		`it's a file`,
+		`$HOME`,
+		`na\me`,
+	}
+	for _, name := range names {
+		out, err := exec.Command("sh", "-c", "printf %s "+shellQuote(name)).Output()
+		if err != nil {
+			t.Fatalf("sh failed for %q: %v", name, err)
+		}
+		if string(out) != name {
+			t.Errorf("shellQuote(%q) round-tripped as %q", name, string(out))
+		}
 	}
 }
 

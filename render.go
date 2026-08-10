@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -41,6 +42,9 @@ func buildStatsLine(m Model) string {
 	}
 	if m.showHidden {
 		statsLine += div + headerBadgeStyle.Render("HIDDEN")
+	}
+	if q := m.searchInput.Value(); q != "" {
+		statsLine += div + headerBadgeStyle.Render("/"+truncateStr(q, 12))
 	}
 	if m.fromCache {
 		statsLine += div + headerCachedStyle.Render("⚡cached")
@@ -203,6 +207,56 @@ func renderRow(m Model, index int, entry FileEntry, selected bool) string {
 	return parts
 }
 
+// renderScanning builds the progress block shown while a scan is in flight.
+// Lines are centred by the caller.
+func renderScanning(m Model) string {
+	var b strings.Builder
+
+	b.WriteString(m.spinner.View())
+	b.WriteString(" ")
+	b.WriteString(scanTitleStyle.Render("Scanning"))
+
+	b.WriteString("\n\n")
+	b.WriteString(scanPathStyle.Render(truncatePath(shortenPath(m.path), maxInt(10, m.width-4))))
+
+	// Counters only start moving once the scan reaches the first batch of
+	// entries, so keep the block minimal until there is something to report.
+	hasCounts := m.scanProgFiles > 0 || m.scanProgDirs > 0
+	if hasCounts {
+		dot := scanDimStyle.Render(" · ")
+		b.WriteString("\n\n")
+		b.WriteString(scanStatStyle.Render(formatCountSep(m.scanProgFiles)))
+		b.WriteString(scanDimStyle.Render(" files"))
+		b.WriteString(dot)
+		b.WriteString(scanStatStyle.Render(formatCountSep(m.scanProgDirs)))
+		b.WriteString(scanDimStyle.Render(" dirs"))
+		b.WriteString(dot)
+		b.WriteString(scanStatStyle.Render(formatSize(m.scanProgSize)))
+	}
+
+	if hasCounts || m.scanElapsed >= 500*time.Millisecond {
+		if hasCounts {
+			b.WriteString("\n")
+		} else {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(scanDimStyle.Render(formatDuration(m.scanElapsed) + " elapsed"))
+		if rate := scanRate(m.scanProgFiles, m.scanElapsed); rate != "" {
+			b.WriteString(scanDimStyle.Render(" · " + rate))
+		}
+	}
+
+	return b.String()
+}
+
+// scanRate formats throughput, or "" when the sample is too short to be useful.
+func scanRate(files int64, elapsed time.Duration) string {
+	if elapsed < 300*time.Millisecond || files == 0 {
+		return ""
+	}
+	return formatCount(int(float64(files)/elapsed.Seconds())) + " files/s"
+}
+
 // renderFooter renders the bottom keybinding bar.
 func renderFooter(m Model) string {
 	if m.searchMode {
@@ -271,7 +325,7 @@ func renderHelp(m Model) string {
 		{"o", "Open in file manager"},
 		{"/", "Search / filter files"},
 		{"↑↓ in /", "Navigate filtered results"},
-		{"Esc", "Cancel search / close help"},
+		{"Esc", "Clear search / top 10 / close help"},
 		{"c", "Go to directory (cd)"},
 		{"h", "Toggle hidden files (on by default)"},
 		{"f", "Cycle filter: all → dirs → files"},
