@@ -8,6 +8,7 @@ Security fixes are released for the latest version of dirgo only. Please upgrade
 brew upgrade mohsinkaleem/tap/dirgo   # Homebrew
 pip install --upgrade dirgo           # pip
 uv tool upgrade dirgo                 # uv
+curl -fsSL https://raw.githubusercontent.com/mohsinkaleem/dirgo/main/scripts/install.sh | sh   # install script
 ```
 
 ## Reporting a Vulnerability

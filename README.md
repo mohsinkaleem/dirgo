@@ -41,6 +41,14 @@ dirgo is in the same family as [ncdu](https://dev.yorhel.nl/ncdu), [gdu](https:/
 brew install mohsinkaleem/tap/dirgo
 ```
 
+### Install script (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mohsinkaleem/dirgo/main/scripts/install.sh | sh
+```
+
+The script downloads the latest release, verifies its checksum and installs `dirgo` to `/usr/local/bin`, or `~/.local/bin` if that isn't writable. Set `DIRGO_INSTALL_DIR` to pick another folder or `DIRGO_VERSION` (e.g. `v1.2.1`) to pin a release.
+
 ### pip / uv (any platform)
 
 ```bash
@@ -56,6 +64,10 @@ uv tool install dirgo
 ```bash
 go install github.com/mohsinkaleem/dirgo@latest
 ```
+
+### Pre-built binaries
+
+Archives for macOS, Linux and Windows (amd64 and arm64) are attached to every [release](https://github.com/mohsinkaleem/dirgo/releases), along with `checksums.txt`. On Windows, extract `dirgo.exe` and put it somewhere on your `PATH`. On macOS, a binary downloaded through a browser is quarantined by Gatekeeper; clear the flag with `xattr -d com.apple.quarantine dirgo`.
 
 ### From source
 
