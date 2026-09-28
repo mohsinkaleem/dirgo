@@ -3,7 +3,7 @@
 ## What's New
 
 ### Install
-- **Homebrew now installs dirgo as a cask**: GoReleaser has deprecated generated Homebrew formulas, so releases now publish `Casks/dirgo.rb` to the tap. The install command is unchanged (`brew install mohsinkaleem/tap/dirgo`), and existing formula installs move over to the cask on `brew upgrade`.
+- **Homebrew now installs dirgo as a cask**: GoReleaser has deprecated generated Homebrew formulas, so releases now publish `Casks/dirgo.rb` to the tap. The install command is unchanged (`brew install mohsinkaleem/tap/dirgo`), and existing formula installs move over to the cask on `brew upgrade`. On Homebrew 6 or later, trust the cask once first, as Homebrew's untrusted-tap message suggests: `brew trust --cask mohsinkaleem/tap/dirgo`.
 - **`go install` builds report their version**: `dirgo --version` printed `dev` for binaries built with `go install ...@vX.Y.Z`. It now falls back to the module version Go records at build time.
 
 ### Bug Fixes
