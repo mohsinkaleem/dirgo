@@ -19,7 +19,7 @@ Thanks for your interest in contributing! Here's how to get started.
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.25+
 - Make
 
 ### Common Commands

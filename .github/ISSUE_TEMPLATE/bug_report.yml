@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in dirgo doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Keys pressed and the directory layout involved, if it matters.
+      placeholder: |
+        1. Run `dirgo ~/some/dir`
+        2. Press `t`
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: dirgo version
+      description: Output of `dirgo --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - Homebrew
+        - pip / uv
+        - go install
+        - Built from source
+        - Release binary
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and terminal
+      placeholder: macOS 15.5, iTerm2 / Ubuntu 24.04, GNOME Terminal / Windows 11, Windows Terminal
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or logs
+      description: A screenshot of the TUI helps with rendering issues.

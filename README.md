@@ -2,9 +2,10 @@
 
 [![CI](https://github.com/mohsinkaleem/dirgo/actions/workflows/ci.yml/badge.svg)](https://github.com/mohsinkaleem/dirgo/actions/workflows/ci.yml)
 [![Release](https://github.com/mohsinkaleem/dirgo/actions/workflows/release.yml/badge.svg)](https://github.com/mohsinkaleem/dirgo/actions/workflows/release.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/mohsinkaleem/dirgo/blob/main/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/dirgo)](https://pypi.org/project/dirgo/)
 
-A fast, minimal and interactive terminal directory analyzer built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea). Visualize disk usage, explore directories, files, and identify space hogs — all from your terminal.
+A fast, minimal and interactive terminal disk usage analyzer built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea). Visualize disk usage, explore directories and files, and find what's eating your disk space — all from your terminal, on macOS, Linux, and Windows.
 
 ![dirgo screenshot](https://raw.githubusercontent.com/mohsinkaleem/dirgo/main/.github/dirgo-view.png)
 
@@ -21,10 +22,24 @@ A fast, minimal and interactive terminal directory analyzer built with Go and [B
 - **Fuzzy search** — filter entries in real time with subsequence matching
 - **Symlink detection** — symlinks shown with `→` / `⇢` indicators
 - **Move to trash** — safely delete files/directories with `d`
-- **Cross-platform** — works on macOS, Linux, and Windows (Quick Look, file open, and cache paths adapt per OS)
+- **Cross-platform** — works on macOS, Linux, and Windows (Quick Look, file open, trash, and hex view adapt per OS)
 - **CPU profiling** — built-in `--profile` flag for performance analysis
 
+## How it compares
+
+dirgo is in the same family as [ncdu](https://dev.yorhel.nl/ncdu), [gdu](https://github.com/dundee/gdu), and [dust](https://github.com/bootandy/dust). The differences:
+
+- **No up-front scan.** ncdu and gdu scan the whole tree before you can browse; dirgo lists the current directory immediately and fills in sizes as they're computed. dust prints a one-shot report rather than an interactive view.
+- **File-level tools, not just sizes.** Line counts, hex view, Quick Look / open, and move to trash are one key away, so you can inspect and clean up without leaving the browser.
+- **Installs everywhere.** One static binary via Homebrew, pip/uv, `go install`, or the release archives.
+
 ## Install
+
+### Homebrew (macOS / Linux)
+
+```bash
+brew install mohsinkaleem/tap/dirgo
+```
 
 ### pip / uv (any platform)
 
@@ -48,13 +63,6 @@ go install github.com/mohsinkaleem/dirgo@latest
 git clone https://github.com/mohsinkaleem/dirgo.git
 cd dirgo
 make build
-```
-
-### Homebrew
-
-```bash
-brew tap mohsinkaleem/tap
-brew install dirgo
 ```
 
 ## Usage
@@ -102,9 +110,9 @@ dirgo --profile /path/to/dir
 
 ## Architecture
 
-For a full walkthrough of the design — component breakdown, message flow, the scanning pipeline, and a deep dive on the concurrency model — see [docs/architecture.html](docs/architecture.html).
+For a full walkthrough of the design — component breakdown, message flow, the scanning pipeline, and a deep dive on the concurrency model — see the [architecture guide](https://mohsinkaleem.github.io/dirgo/architecture.html).
 
-Prefer to learn by doing? [docs/explore.html](docs/explore.html) is an interactive tour: drive a working replica of the TUI in your browser, step through the message loop one frame at a time, and run the concurrent scanner with adjustable core counts.
+Prefer to learn by doing? The [interactive tour](https://mohsinkaleem.github.io/dirgo/explore.html) lets you drive a working replica of the TUI in your browser, step through the message loop one frame at a time, and run the concurrent scanner with adjustable core counts.
 
 ```
 main.go        Entry point, --profile/--version flags, Bubble Tea program setup
@@ -154,12 +162,12 @@ make release
 
 ## Requirements
 
-- Go 1.21+
+- Go 1.25+ (only needed to build from source or `go install`)
 - macOS / Linux / Windows
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request.
+Contributions are welcome! See [CONTRIBUTING.md](https://github.com/mohsinkaleem/dirgo/blob/main/CONTRIBUTING.md) for the development setup, and please follow the [code of conduct](https://github.com/mohsinkaleem/dirgo/blob/main/CODE_OF_CONDUCT.md). To report a security issue, see [SECURITY.md](https://github.com/mohsinkaleem/dirgo/blob/main/SECURITY.md).
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
@@ -169,4 +177,4 @@ Contributions are welcome! Please open an issue or submit a pull request.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/mohsinkaleem/dirgo/blob/main/LICENSE)
