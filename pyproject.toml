@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dirgo"
-version = "1.2.0"
-description = "Fast, minimal and interactive terminal directory analyzer"
+version = "1.2.1"
+description = "Fast, interactive terminal disk usage analyzer (TUI) for macOS, Linux and Windows"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.8"
 authors = [{ name = "Mohsin Kaleem" }]
-keywords = ["terminal", "directory", "disk-usage", "cli", "tui"]
+keywords = ["terminal", "directory", "disk-usage", "disk-space", "du", "ncdu", "cli", "tui", "file-manager"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -28,6 +28,8 @@ classifiers = [
 Homepage = "https://github.com/mohsinkaleem/dirgo"
 Repository = "https://github.com/mohsinkaleem/dirgo"
 Issues = "https://github.com/mohsinkaleem/dirgo/issues"
+Documentation = "https://mohsinkaleem.github.io/dirgo/"
+Changelog = "https://github.com/mohsinkaleem/dirgo/releases"
 
 [project.scripts]
 dirgo = "dirgo_python._cli:main"
