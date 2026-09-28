@@ -5,13 +5,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"runtime/pprof"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // version is set at build time via -ldflags.
 var version = "dev"
+
+// buildVersion returns the -ldflags version, falling back to the module
+// version Go records for `go install ...@vX.Y.Z` builds.
+func buildVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return strings.TrimPrefix(info.Main.Version, "v")
+	}
+	return version
+}
 
 func main() {
 	os.Exit(run())
@@ -25,7 +39,7 @@ func run() int {
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Printf("dirgo %s\n", version)
+		fmt.Printf("dirgo %s\n", buildVersion())
 		return 0
 	}
 
