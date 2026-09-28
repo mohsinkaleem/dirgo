@@ -12,7 +12,7 @@ dirgo is written in Go. The Python package on PyPI is a **thin wrapper** — it 
 
 ```
 dirgo_python/
-├── __init__.py    # Declares __version__ (e.g. "1.1.0")
+├── __init__.py    # Declares __version__ (e.g. "1.2.1")
 └── _cli.py        # Entry point: downloads + runs the Go binary
 ```
 
@@ -33,7 +33,7 @@ When a user runs `dirgo`, Python calls `dirgo_python._cli:main()`.
    - OS: `darwin`, `linux`, `windows`
    - Arch: `amd64`, `arm64`
 
-2. **Check cache** — looks for the binary at `dirgo_python/_bin/dirgo` (or `dirgo.exe` on Windows). If it exists, skip download.
+2. **Check cache** — looks for the binary at `dirgo_python/_bin/<version>/dirgo` (or `dirgo.exe` on Windows). If it exists, skip download. The path is per version because pip and uv only remove files they installed: an unversioned cache would keep running the old binary after an upgrade.
 
 3. **Download** — constructs the URL from the version in `__init__.py`:
    ```
@@ -41,7 +41,7 @@ When a user runs `dirgo`, Python calls `dirgo_python._cli:main()`.
    ```
    Windows archives use `.zip` instead of `.tar.gz`.
 
-4. **Extract** — extracts the `dirgo` binary from the archive into `_bin/`.
+4. **Verify and extract** — checks the archive's SHA-256 against the release's `checksums.txt`, extracts the `dirgo` binary, writes it to a temp file and renames it into place (so an interrupted run never leaves a truncated binary), then removes binaries cached for other versions.
 
 5. **Execute** — runs the binary with `subprocess.call()`, passing through all CLI arguments and the exit code.
 
@@ -117,11 +117,11 @@ Runs [goreleaser](https://goreleaser.com/) which:
 - Creates `.tar.gz` archives (`.zip` for Windows)
 - Generates checksums
 - Creates a GitHub Release with all artifacts
-- Pushes the Homebrew formula to `mohsinkaleem/homebrew-tap`
+- Pushes the Homebrew cask to `mohsinkaleem/homebrew-tap` (skipped for pre-releases)
 
 **Secrets required:**
 - `GITHUB_TOKEN` — automatic, used for the release itself
-- `HOMEBREW_TAP_GITHUB_TOKEN` — PAT with `repo` scope, used to push the Homebrew formula to the tap repo
+- `HOMEBREW_TAP_GITHUB_TOKEN` — PAT with `repo` scope, used to push the Homebrew cask to the tap repo
 
 ### 3. Publish to PyPI (`pypi.yml`)
 
@@ -140,7 +140,7 @@ Builds the Python sdist + wheel with `python -m build` and publishes to PyPI usi
 | Secret | Where | Purpose |
 |--------|-------|---------|
 | `GITHUB_TOKEN` | Auto-provided | GitHub Release creation, artifact upload |
-| `HOMEBREW_TAP_GITHUB_TOKEN` | Repo secret | Push Homebrew formula to `homebrew-tap` repo |
+| `HOMEBREW_TAP_GITHUB_TOKEN` | Repo secret | Push Homebrew cask to `homebrew-tap` repo |
 | *(none for PyPI)* | OIDC | Trusted Publishing handles PyPI auth |
 
 ---
