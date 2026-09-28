@@ -45,13 +45,20 @@ changelog:
       - Merge pull request
       - Merge branch
 
-brews:
-  - repository:
+homebrew_casks:
+  - name: dirgo
+    description: "Fast, interactive terminal disk usage analyzer"
+    homepage: "https://github.com/mohsinkaleem/dirgo"
+    repository:
       owner: mohsinkaleem
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    homepage: https://github.com/mohsinkaleem/dirgo
-    description: Fast, interactive terminal directory analyzer
-    license: MIT
-    install: |
-      bin.install "dirgo"
+    skip_upload: auto # don't publish pre-releases to the tap
+    hooks:
+      post:
+        # The binaries are not notarized, so drop the quarantine flag macOS
+        # would otherwise block them with.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/dirgo"]
+          end
