@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,6 +38,18 @@ type Model struct {
 
 	// Scan cache: LRU with bounded size
 	cache *lruCache
+
+	// In-flight scans by path. Re-entering a directory while its scan is
+	// still running joins that scan instead of starting a second one.
+	scans map[string]*ScanProgress
+
+	// Full paths with a trash operation in flight, so a repeated 'd' on the
+	// same row is ignored.
+	trashing map[string]bool
+
+	// One-line footer message for action results; cleared on the next key.
+	status    string
+	statusErr bool
 
 	// Scan progress: shared with scanner goroutine
 	scanProg      *ScanProgress
@@ -78,7 +91,7 @@ type Model struct {
 	gotoInput   textinput.Model
 	keys        KeyMap
 
-	// Error
+	// Error from scanning the current directory (replaces the listing)
 	err error
 }
 
@@ -99,6 +112,7 @@ func NewModel(path string) Model {
 	gi.Width = 50
 
 	cache := newLRUCache(100)
+	prog := newScanProgress()
 
 	return Model{
 		path:          path,
@@ -111,12 +125,14 @@ func NewModel(path string) Model {
 		cursorHistory: make(map[string]string),
 		cache:         cache,
 		viewBuf:       &strings.Builder{},
-		scanProg:      newScanProgress(),
+		scanProg:      prog,
+		scans:         map[string]*ScanProgress{path: prog},
+		trashing:      make(map[string]bool),
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(scanDirectory(m.path, m.scanProg), m.spinner.Tick)
+	return tea.Batch(scanDirectory(m.path, m.scanProg, nil), m.spinner.Tick)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -130,6 +146,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Rebuild separator cache (View has value receiver, so caching there is lost)
 		m.cachedSep = lipgloss.NewStyle().Foreground(colorDimmer).Width(m.width).Render(strings.Repeat("─", m.width))
 		m.cachedSepWidth = m.width
+		// A shorter window can leave the cursor below the visible rows.
+		m.ensureVisible()
 		return m, nil
 
 	case tea.MouseMsg:
@@ -148,132 +166,64 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scanResultMsg:
 		// Phase 1 complete — populate entries immediately
 		m.cache.Put(msg.path, msg)
+		delete(m.scans, msg.path)
 		if msg.path != m.path {
 			// Result for a directory we already navigated away from; keep it cached only.
 			return m, nil
 		}
-		m.loading = false
+		selectName := m.pendingCursorEntry
+		m.pendingCursorEntry = ""
+		m.leaveScanView()
 		m.fromCache = false
-		m.scanProg = nil
-		m.scanProgFiles = 0
-		m.scanProgDirs = 0
-		m.scanProgSize = 0
-		m.scanElapsed = 0
-		m.path = msg.path
-		m.entries = msg.entries
-		m.totalSize = msg.totalSize
-		m.totalFiles = msg.totalFiles
-		m.totalDirs = msg.totalDirs
-
-		// Compute deep totals (immediate + recursive children)
-		m.deepTotalFiles = int64(msg.totalFiles)
-		m.deepTotalDirs = int64(msg.totalDirs)
-		for _, e := range msg.entries {
-			if e.IsDir {
-				m.deepTotalFiles += int64(e.ChildFiles)
-				m.deepTotalDirs += int64(e.ChildDirs)
-			}
-		}
-
+		m.err = nil
+		m.setListing(msg)
 		m.cursor = 0
 		m.offset = 0
-		m.applyFilter()
-
 		// Restore cursor to remembered entry (e.g., when navigating up to parent)
-		if m.pendingCursorEntry != "" {
-			for i, e := range m.filtered {
-				if e.Name == m.pendingCursorEntry {
-					m.cursor = i
-					m.ensureVisible()
-					break
-				}
-			}
-			m.pendingCursorEntry = ""
-		}
-
-		// Trigger line count for the selected entry
-		if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
-			e := m.filtered[m.cursor]
-			if !e.IsDir && !e.IsBinary {
-				cmds = append(cmds, countLinesCmd(m.path, e.Name))
-			}
-		}
-
-		return m, tea.Batch(cmds...)
+		m.selectName(selectName)
+		return m, m.lineCountForSelected()
 
 	case scanUpToDateMsg:
 		// Smart refresh: nothing changed
+		delete(m.scans, msg.path)
 		if msg.path != m.path {
 			return m, nil
 		}
-		m.loading = false
+		m.pendingCursorEntry = ""
+		m.leaveScanView()
 		m.fromCache = false // modtime check confirmed the listing is current
-		m.scanProg = nil
-		m.scanProgFiles = 0
-		m.scanProgDirs = 0
-		m.scanProgSize = 0
-		m.scanElapsed = 0
 		return m, nil
 
 	case scanErrorMsg:
-		// An empty path means the error did not come from a directory scan.
-		if msg.path != "" && msg.path != m.path {
+		delete(m.scans, msg.path)
+		if msg.path != m.path {
 			return m, nil
 		}
-		m.loading = false
-		m.scanProg = nil
-		m.scanProgFiles = 0
-		m.scanProgDirs = 0
-		m.scanProgSize = 0
-		m.scanElapsed = 0
+		m.pendingCursorEntry = ""
+		m.leaveScanView()
 		m.err = msg.err
+		// Nothing can be listed, so drop any rows left over from before:
+		// they would otherwise stay selectable (and deletable) behind the error.
+		m.entries = nil
+		m.applyFilter()
+		m.cursor = 0
+		m.offset = 0
+		return m, nil
+
+	case statusMsg:
+		m.setStatus(msg.text, msg.isErr)
 		return m, nil
 
 	case trashResultMsg:
+		delete(m.trashing, filepath.Join(msg.dir, msg.entry.Name))
 		if msg.err != nil {
-			m.err = msg.err
+			m.setStatus(msg.err.Error(), true)
 			return m, nil
 		}
-		m.err = nil
-		// Remove deleted entry locally (avoid expensive full rescan)
-		for i, e := range m.entries {
-			if e.Name == msg.name {
-				m.entries = append(m.entries[:i], m.entries[i+1:]...)
-				break
-			}
-		}
-		// Update totals
-		m.totalSize -= msg.size
-		if m.totalSize < 0 {
-			m.totalSize = 0
-		}
-		if msg.isDir {
-			m.totalDirs--
-		} else {
-			m.totalFiles--
-		}
-		// Recompute percentages
-		if m.totalSize > 0 {
-			for i := range m.entries {
-				m.entries[i].Percentage = float64(m.entries[i].Size) / float64(m.totalSize) * 100
-			}
-		} else {
-			for i := range m.entries {
-				m.entries[i].Percentage = 0
-			}
-		}
-		m.computeDeepTotals()
-		m.applyFilter()
-		// Adjust cursor to stay in bounds
-		if m.cursor >= len(m.filtered) {
-			m.cursor = len(m.filtered) - 1
-		}
-		if m.cursor < 0 {
-			m.cursor = 0
-		}
-		m.ensureVisible()
-		// Invalidate stale cache for this directory
-		m.cache.Delete(m.path)
+		m.setStatus("Moved "+msg.entry.Name+" to Trash", false)
+		// Patch the listings in place instead of invalidating them, so going
+		// back to this directory or any parent never needs a rescan.
+		m.forgetEntry(msg.dir, msg.entry, msg.dirModTime)
 		return m, m.lineCountForSelected()
 
 	case lineCountMsg:
@@ -347,6 +297,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
+		m.status = ""
+
 		// If in goto mode, handle text input first
 		if m.gotoMode {
 			switch {
@@ -378,18 +330,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchMode = false
 				m.searchInput.SetValue("")
 				m.searchInput.Blur()
-				m.applyFilter()
-				m.cursor = 0
-				m.offset = 0
+				m.refilter()
 				return m, nil
 			case msg.Type == tea.KeyEnter:
 				m.searchMode = false
 				m.searchInput.Blur()
 				return m, nil
-			case key.Matches(msg, m.keys.Up):
+			// Arrow keys only: the k/j aliases must stay typeable in the query.
+			case msg.Type == tea.KeyUp:
 				m = m.moveCursor(-1)
 				return m, m.lineCountForSelected()
-			case key.Matches(msg, m.keys.Down):
+			case msg.Type == tea.KeyDown:
 				m = m.moveCursor(1)
 				return m, m.lineCountForSelected()
 			default:
@@ -452,20 +403,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.lineCountForSelected()
 
 		case key.Matches(msg, m.keys.Refresh):
-			// Smart refresh: check modtime before full rescan
-			m.err = nil
-			cached, ok := m.cache.Get(m.path)
-			cmd := m.startScan(m.path)
-			if ok {
-				cmd = tea.Batch(smartRefreshCmd(m.path, cached, m.scanProg), m.spinner.Tick)
+			if m.loading {
+				return m, nil // a scan of this directory is already running
 			}
-			return m, cmd
+			// Smart refresh: check modtime before full rescan. Explicit refreshes
+			// never reuse cached subtrees, so they always reflect the disk.
+			m.err = nil
+			m.pendingCursorEntry = m.selectedName()
+			path := m.path
+			cached, ok := m.cache.Get(path)
+			return m, m.startScan(path, func(prog *ScanProgress) tea.Cmd {
+				if ok {
+					return smartRefreshCmd(path, cached, prog)
+				}
+				return scanDirectory(path, prog, nil)
+			})
 
 		case key.Matches(msg, m.keys.TopView):
 			m.topMode = !m.topMode
-			m.applyFilter()
-			m.cursor = 0
-			m.offset = 0
+			m.refilter()
 			return m, nil
 
 		case key.Matches(msg, m.keys.Open):
@@ -485,28 +441,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Hidden):
 			m.showHidden = !m.showHidden
-			m.applyFilter()
-			m.cursor = 0
-			m.offset = 0
+			m.refilter()
 			return m, nil
 
 		case key.Matches(msg, m.keys.DirOnly):
 			// Cycle: all → dirs only → files only → all
 			m.viewFilter = (m.viewFilter + 1) % 3
-			m.applyFilter()
-			m.cursor = 0
-			m.offset = 0
+			m.refilter()
 			return m, nil
 
 		case key.Matches(msg, m.keys.Delete):
-			if len(m.filtered) > 0 {
-				entry := m.filtered[m.cursor]
-				fullPath := filepath.Join(m.path, entry.Name)
-				return m, trashCmd(fullPath, entry.Name, entry.Size, entry.IsDir)
+			entry, ok := m.selected()
+			if !ok {
+				return m, nil
 			}
-			return m, nil
+			fullPath := filepath.Join(m.path, entry.Name)
+			if m.trashing[fullPath] {
+				return m, nil // already on its way to the Trash
+			}
+			m.trashing[fullPath] = true
+			m.setStatus("Moving "+entry.Name+" to Trash…", false)
+			return m, trashCmd(m.path, entry)
 
 		case key.Matches(msg, m.keys.CountAll):
+			if m.loading {
+				return m, nil
+			}
 			// Batch count lines for all visible entries
 			return m, countAllLinesCmd(m.filtered, m.path)
 
@@ -528,9 +488,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				return m, nil
 			}
-			m.applyFilter()
-			m.cursor = 0
-			m.offset = 0
+			m.refilter()
 			return m, m.lineCountForSelected()
 		}
 	}
@@ -627,15 +585,95 @@ func (m Model) View() string {
 
 // --- helpers ---
 
-// startScan resets progress state and returns the commands driving a fresh scan.
-func (m *Model) startScan(path string) tea.Cmd {
+// startScan shows the scanning view for path and returns the commands that
+// drive it; scan builds the command from a fresh progress block. A scan
+// already running for path is joined instead of repeated.
+func (m *Model) startScan(path string, scan func(*ScanProgress) tea.Cmd) tea.Cmd {
+	m.leaveScanView() // zero the counters from any previous scan
 	m.loading = true
+	if prog, ok := m.scans[path]; ok {
+		m.scanProg = prog
+		return m.spinner.Tick
+	}
 	m.scanProg = newScanProgress()
+	m.scans[path] = m.scanProg
+	return tea.Batch(scan(m.scanProg), m.spinner.Tick)
+}
+
+// leaveScanView hides the scanning view and clears its progress display.
+func (m *Model) leaveScanView() {
+	m.loading = false
+	m.scanProg = nil
 	m.scanProgFiles = 0
 	m.scanProgDirs = 0
 	m.scanProgSize = 0
 	m.scanElapsed = 0
-	return tea.Batch(scanDirectory(path, m.scanProg), m.spinner.Tick)
+}
+
+func (m *Model) setStatus(text string, isErr bool) {
+	m.status = text
+	m.statusErr = isErr
+}
+
+// selected returns the entry under the cursor. Nothing is selectable while a
+// scan is showing, because the rows behind it are not on screen.
+func (m Model) selected() (FileEntry, bool) {
+	if m.loading || m.cursor < 0 || m.cursor >= len(m.filtered) {
+		return FileEntry{}, false
+	}
+	return m.filtered[m.cursor], true
+}
+
+func (m Model) selectedName() string {
+	e, _ := m.selected()
+	return e.Name
+}
+
+// selectName moves the cursor to the named entry, reporting whether it is listed.
+func (m *Model) selectName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, e := range m.filtered {
+		if e.Name == name {
+			m.cursor = i
+			m.ensureVisible()
+			return true
+		}
+	}
+	return false
+}
+
+// clampCursor pulls the cursor back into the list after it shrank.
+func (m *Model) clampCursor() {
+	if m.cursor >= len(m.filtered) {
+		m.cursor = len(m.filtered) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	m.ensureVisible()
+}
+
+// refilter re-applies the view filters, keeping the selected entry if it is
+// still visible and going to the top otherwise.
+func (m *Model) refilter() {
+	name := m.selectedName()
+	m.applyFilter()
+	m.cursor = 0
+	m.offset = 0
+	m.selectName(name)
+}
+
+// setListing shows res as the current directory's contents. The caller
+// positions the cursor.
+func (m *Model) setListing(res scanResultMsg) {
+	m.entries = res.entries
+	m.totalSize = res.totalSize
+	m.totalFiles = res.totalFiles
+	m.totalDirs = res.totalDirs
+	m.computeDeepTotals()
+	m.applyFilter()
 }
 
 func (m Model) moveCursor(delta int) Model {
@@ -709,57 +747,22 @@ func (m Model) navigateUp() (Model, tea.Cmd) {
 	if parent == m.path {
 		return m, nil // already at root
 	}
-
-	// Remember which directory we came from so parent highlights it
-	childName := filepath.Base(m.path)
-
-	// Save current cursor position for this directory
-	if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
-		m.rememberCursor(m.path, m.filtered[m.cursor].Name)
-	}
-
-	m.path = parent
-	m.err = nil
-	m.searchInput.SetValue("")
-	m.searchMode = false
-	if cached, ok := m.cache.Get(parent); ok {
-		m.loading = false
-		m.fromCache = true
-		m.entries = cached.entries
-		m.totalSize = cached.totalSize
-		m.totalFiles = cached.totalFiles
-		m.totalDirs = cached.totalDirs
-		m.computeDeepTotals()
-		m.cursor = 0
-		m.offset = 0
-		m.applyFilter()
-		// Highlight the directory we navigated up from
-		for i, e := range m.filtered {
-			if e.Name == childName {
-				m.cursor = i
-				m.ensureVisible()
-				break
-			}
-		}
-		return m, m.lineCountForSelected()
-	}
-	// For async scan, remember to restore cursor when results arrive
-	m.pendingCursorEntry = childName
-	return m, m.startScan(parent)
+	// Highlight the directory we navigated up from
+	return m.enterDir(parent, filepath.Base(m.path))
 }
 
 func (m Model) navigateIn() (Model, tea.Cmd) {
-	if len(m.filtered) == 0 {
+	entry, ok := m.selected()
+	if !ok {
 		return m, nil
 	}
-	entry := m.filtered[m.cursor]
 
 	// For files, open with default application
 	if !entry.IsDir {
 		// Block opening very large binary files to avoid freezing the system
 		const maxOpenSize = 100 * 1024 * 1024 // 100 MB
 		if entry.IsBinary && entry.Size > maxOpenSize {
-			m.err = fmt.Errorf("file too large to open (%s) — use 'x' for hex view", formatSize(entry.Size))
+			m.setStatus(fmt.Sprintf("file too large to open (%s) — use 'x' for hex view", formatSize(entry.Size)), true)
 			return m, nil
 		}
 		filePath := filepath.Join(m.path, entry.Name)
@@ -767,50 +770,15 @@ func (m Model) navigateIn() (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Save current cursor position for this directory
-	m.rememberCursor(m.path, entry.Name)
-
 	target := filepath.Join(m.path, entry.Name)
-	m.path = target
-	m.err = nil
-	m.searchInput.SetValue("")
-	m.searchMode = false
-
-	// Check if we have a remembered cursor position for this directory
-	pendingEntry := m.cursorHistory[target]
-
-	if cached, ok := m.cache.Get(target); ok {
-		m.loading = false
-		m.fromCache = true
-		m.entries = cached.entries
-		m.totalSize = cached.totalSize
-		m.totalFiles = cached.totalFiles
-		m.totalDirs = cached.totalDirs
-		m.computeDeepTotals()
-		m.cursor = 0
-		m.offset = 0
-		m.applyFilter()
-		// Restore cursor to previously selected entry
-		if pendingEntry != "" {
-			for i, e := range m.filtered {
-				if e.Name == pendingEntry {
-					m.cursor = i
-					m.ensureVisible()
-					break
-				}
-			}
-		}
-		return m, m.lineCountForSelected()
-	}
-	if pendingEntry != "" {
-		m.pendingCursorEntry = pendingEntry
-	}
-	return m, m.startScan(target)
+	return m.enterDir(target, m.cursorHistory[target])
 }
 
 func (m Model) navigateTo(target string) (Model, tea.Cmd) {
-	// Expand ~ to home directory
-	if strings.HasPrefix(target, "~") {
+	target = strings.TrimSpace(target)
+
+	// Expand ~ to home directory (~user forms are left alone)
+	if target == "~" || strings.HasPrefix(target, "~/") || strings.HasPrefix(target, "~"+string(filepath.Separator)) {
 		home, err := os.UserHomeDir()
 		if err == nil {
 			target = filepath.Join(home, target[1:])
@@ -825,41 +793,179 @@ func (m Model) navigateTo(target string) (Model, tea.Cmd) {
 	// Clean the path
 	target = filepath.Clean(target)
 
-	// Verify it exists and is a directory
+	// Verify it exists and is a directory. Failures go to the footer: the
+	// current listing is still valid.
 	info, err := os.Stat(target)
 	if err != nil {
-		m.err = fmt.Errorf("cannot navigate: %w", err)
+		m.setStatus(fmt.Sprintf("cannot navigate: %v", err), true)
 		return m, nil
 	}
 	if !info.IsDir() {
-		m.err = fmt.Errorf("not a directory: %s", target)
+		m.setStatus("not a directory: "+target, true)
 		return m, nil
 	}
 
-	// Save current cursor position
-	if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
-		m.rememberCursor(m.path, m.filtered[m.cursor].Name)
+	return m.enterDir(target, m.cursorHistory[target])
+}
+
+// enterDir shows dir — straight from the cache when possible, otherwise by
+// scanning it — and highlights selectName once it is listed.
+func (m Model) enterDir(dir, selectName string) (Model, tea.Cmd) {
+	// Save current cursor position so coming back restores it
+	if name := m.selectedName(); name != "" {
+		m.rememberCursor(m.path, name)
 	}
 
-	m.path = target
+	m.path = dir
 	m.err = nil
 	m.searchInput.SetValue("")
 	m.searchMode = false
+	m.pendingCursorEntry = ""
+	m.cursor = 0
+	m.offset = 0
 
-	if cached, ok := m.cache.Get(target); ok {
-		m.loading = false
+	if cached, ok := m.cache.Get(dir); ok {
+		m.leaveScanView()
 		m.fromCache = true
-		m.entries = cached.entries
-		m.totalSize = cached.totalSize
-		m.totalFiles = cached.totalFiles
-		m.totalDirs = cached.totalDirs
-		m.computeDeepTotals()
-		m.cursor = 0
-		m.offset = 0
-		m.applyFilter()
+		m.setListing(cached)
+		m.selectName(selectName)
 		return m, m.lineCountForSelected()
 	}
-	return m, m.startScan(target)
+
+	// Drop the old directory's rows so no key acts on them while scanning.
+	m.entries = nil
+	m.applyFilter()
+	m.fromCache = false
+	// For async scan, remember to restore cursor when results arrive
+	m.pendingCursorEntry = selectName
+	known := m.knownSubtrees(dir)
+	return m, m.startScan(dir, func(prog *ScanProgress) tea.Cmd {
+		return scanDirectory(dir, prog, known)
+	})
+}
+
+// knownSubtrees collects cached totals for dir's immediate subdirectories, so
+// scanning dir does not walk them again. The usual case is going up into a
+// parent that is not cached yet: the child just left is already sized.
+func (m *Model) knownSubtrees(dir string) map[string]subtreeTotals {
+	var known map[string]subtreeTotals
+	m.cache.Each(func(path string, res scanResultMsg) {
+		if path == dir || filepath.Dir(path) != dir {
+			return
+		}
+		if known == nil {
+			known = make(map[string]subtreeTotals)
+		}
+		known[filepath.Base(path)] = subtreeOf(res)
+	})
+	return known
+}
+
+// listing returns the newest listing of dir: the one on screen if dir is the
+// current directory, otherwise the cached one.
+func (m *Model) listing(dir string) (scanResultMsg, bool) {
+	if dir == m.path && !m.loading && m.err == nil {
+		res, _ := m.cache.Get(dir) // keeps dirModTime
+		res.path = dir
+		res.entries = m.entries
+		res.totalSize = m.totalSize
+		res.totalFiles = m.totalFiles
+		res.totalDirs = m.totalDirs
+		return res, true
+	}
+	return m.cache.Get(dir)
+}
+
+// storeListing caches res and, when it is the directory on screen, shows it
+// with the cursor on the same entry — or the same row if that entry is gone.
+func (m *Model) storeListing(res scanResultMsg) {
+	m.cache.Put(res.path, res)
+	if res.path != m.path || m.loading || m.err != nil {
+		return
+	}
+	name := m.selectedName()
+	m.setListing(res)
+	if !m.selectName(name) {
+		m.clampCursor()
+	}
+}
+
+// forgetEntry updates every known listing after entry was trashed from dir:
+// dir loses the row, and each ancestor's row on the way down to dir shrinks by
+// what was removed. Nothing is rescanned, so returning to dir or any parent is
+// instant and shows the new sizes. dirModTime is dir's modtime after the
+// removal, which keeps smart refresh from treating our own delete as a change.
+func (m *Model) forgetEntry(dir string, entry FileEntry, dirModTime time.Time) {
+	if res, ok := m.listing(dir); ok {
+		if updated, removed, ok := withoutEntry(res, entry.Name); ok {
+			entry = removed
+			if !dirModTime.IsZero() {
+				updated.dirModTime = dirModTime
+			}
+			m.storeListing(updated)
+		}
+	}
+
+	// The trashed path no longer exists; a listing cached under it would
+	// otherwise be shown for anything recreated there later.
+	if entry.IsDir {
+		m.cache.DeleteTree(filepath.Join(dir, entry.Name))
+	}
+
+	gone := subtreeTotals{size: entry.Size, files: 1}
+	if entry.IsDir && !entry.IsSymlink {
+		gone = subtreeTotals{size: entry.Size, files: entry.ChildFiles, dirs: entry.ChildDirs + 1}
+	}
+	for child, parent := dir, filepath.Dir(dir); parent != child; child, parent = parent, filepath.Dir(parent) {
+		// Parents never count what lies behind a symlink, so stop there.
+		if fi, err := os.Lstat(child); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+			return
+		}
+		if res, ok := m.listing(parent); ok {
+			if updated, ok := shrinkEntry(res, filepath.Base(child), gone); ok {
+				m.storeListing(updated)
+			}
+		}
+	}
+}
+
+// withoutEntry returns res minus the named entry, plus the entry removed. The
+// entries slice is copied: the old one is shared with the cache and the model.
+func withoutEntry(res scanResultMsg, name string) (scanResultMsg, FileEntry, bool) {
+	i := slices.IndexFunc(res.entries, func(e FileEntry) bool { return e.Name == name })
+	if i < 0 {
+		return res, FileEntry{}, false
+	}
+	removed := res.entries[i]
+	res.entries = slices.Delete(slices.Clone(res.entries), i, i+1)
+	res.totalSize = max(0, res.totalSize-removed.Size)
+	if removed.IsDir {
+		res.totalDirs--
+	} else {
+		res.totalFiles--
+	}
+	setPercentages(res.entries, res.totalSize)
+	return res, removed, true
+}
+
+// shrinkEntry returns res with gone subtracted from the named subdirectory,
+// re-sorted since that directory's size changed.
+func shrinkEntry(res scanResultMsg, name string, gone subtreeTotals) (scanResultMsg, bool) {
+	i := slices.IndexFunc(res.entries, func(e FileEntry) bool {
+		return e.Name == name && e.IsDir && !e.IsSymlink
+	})
+	if i < 0 {
+		return res, false
+	}
+	res.entries = slices.Clone(res.entries)
+	e := &res.entries[i]
+	e.Size = max(0, e.Size-gone.size)
+	e.ChildFiles = max(0, e.ChildFiles-gone.files)
+	e.ChildDirs = max(0, e.ChildDirs-gone.dirs)
+	res.totalSize = max(0, res.totalSize-gone.size)
+	setPercentages(res.entries, res.totalSize)
+	SortBySize(res.entries)
+	return res, true
 }
 
 func (m *Model) computeDeepTotals() {
@@ -874,10 +980,10 @@ func (m *Model) computeDeepTotals() {
 }
 
 func (m Model) quickLook() (Model, tea.Cmd) {
-	if len(m.filtered) == 0 {
+	entry, ok := m.selected()
+	if !ok {
 		return m, nil
 	}
-	entry := m.filtered[m.cursor]
 	targetPath := filepath.Join(m.path, entry.Name)
 
 	var cmd *exec.Cmd
@@ -905,7 +1011,7 @@ func (m Model) quickLook() (Model, tea.Cmd) {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
-		m.err = fmt.Errorf("Quick Look failed: %w", err)
+		m.setStatus(fmt.Sprintf("Quick Look failed: %v", err), true)
 	} else {
 		go cmd.Wait() // reap child process to avoid zombies
 	}
@@ -917,15 +1023,12 @@ func (m Model) quickLook() (Model, tea.Cmd) {
 const maxHexViewSize = 50 * 1024 * 1024
 
 func (m Model) hexView() (Model, tea.Cmd) {
-	if len(m.filtered) == 0 {
-		return m, nil
-	}
-	entry := m.filtered[m.cursor]
-	if entry.IsDir {
+	entry, ok := m.selected()
+	if !ok || entry.IsDir {
 		return m, nil
 	}
 	if entry.Size > maxHexViewSize {
-		m.err = fmt.Errorf("file too large for hex view (%s, max %s)", formatSize(entry.Size), formatSize(maxHexViewSize))
+		m.setStatus(fmt.Sprintf("file too large for hex view (%s, max %s)", formatSize(entry.Size), formatSize(maxHexViewSize)), true)
 		return m, nil
 	}
 
@@ -947,7 +1050,7 @@ func (m Model) hexView() (Model, tea.Cmd) {
 			}
 		}
 		if hexCmd == "" {
-			m.err = fmt.Errorf("no hex viewer found (install xxd or hexdump)")
+			m.setStatus("no hex viewer found (install xxd or hexdump)", true)
 			return m, nil
 		}
 
@@ -965,18 +1068,15 @@ func (m Model) hexView() (Model, tea.Cmd) {
 
 	return m, tea.ExecProcess(c, func(err error) tea.Msg {
 		if err != nil {
-			return scanErrorMsg{err: fmt.Errorf("hex view failed: %w", err)}
+			return statusMsg{text: fmt.Sprintf("hex view failed: %v", err), isErr: true}
 		}
 		return nil
 	})
 }
 
 func (m Model) lineCountForSelected() tea.Cmd {
-	if len(m.filtered) == 0 {
-		return nil
-	}
-	e := m.filtered[m.cursor]
-	if e.IsDir || e.IsBinary || e.LineCount > 0 {
+	e, ok := m.selected()
+	if !ok || e.IsDir || e.IsBinary || e.LineCount > 0 {
 		return nil
 	}
 	return countLinesCmd(m.path, e.Name)
@@ -1011,17 +1111,25 @@ func openPath(path string) {
 	}
 }
 
-// trashResultMsg is returned after a trash operation.
-type trashResultMsg struct {
-	err   error
-	name  string // entry name that was deleted
-	size  int64  // size of deleted entry
-	isDir bool   // whether it was a directory
+// statusMsg carries the outcome of a background action to the footer.
+type statusMsg struct {
+	text  string
+	isErr bool
 }
 
-// trashCmd moves the given path to the system trash asynchronously.
-func trashCmd(path, name string, size int64, isDir bool) tea.Cmd {
+// trashResultMsg is returned after a trash operation. It names the directory
+// the entry was in: by the time it arrives the user may be somewhere else.
+type trashResultMsg struct {
+	err        error
+	dir        string    // directory the entry was in
+	entry      FileEntry // the entry as listed when it was trashed
+	dirModTime time.Time // dir's modtime after the removal; zero if unknown
+}
+
+// trashCmd moves entry (in dir) to the system trash asynchronously.
+func trashCmd(dir string, entry FileEntry) tea.Cmd {
 	return func() tea.Msg {
+		path := filepath.Join(dir, entry.Name)
 		var err error
 		switch runtime.GOOS {
 		case "darwin":
@@ -1041,7 +1149,13 @@ func trashCmd(path, name string, size int64, isDir bool) tea.Cmd {
 		default:
 			err = fmt.Errorf("trash not supported on %s", runtime.GOOS)
 		}
-		return trashResultMsg{err: err, name: name, size: size, isDir: isDir}
+		msg := trashResultMsg{err: err, dir: dir, entry: entry}
+		if err == nil {
+			if info, statErr := os.Stat(dir); statErr == nil {
+				msg.dirModTime = info.ModTime()
+			}
+		}
+		return msg
 	}
 }
 

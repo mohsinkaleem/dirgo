@@ -13,14 +13,14 @@ A fast, minimal and interactive terminal disk usage analyzer built with Go and [
 
 - **Instant directory listing** — files appear immediately; directory sizes compute in the background
 - **Proportional size bars** — color-coded percentage bars for quick visual scanning
-- **Efficient directory scanning** — uses `os.ReadDir` + manual recursion to minimize syscalls; parallel stat with bounded concurrency
+- **Efficient directory scanning** — a bounded pool of workers shares the directory walk, so one huge subfolder (`node_modules`, `~/Library`) never serializes the scan; one `lstat` per file and none per directory
 - **Smart refresh** — checks directory modtime before rescanning; skips unchanged directories
-- **LRU cache** — bounded in-memory cache (100 entries) for instant back-navigation within a session
+- **LRU cache** — bounded in-memory cache (100 entries) for instant back-navigation within a session; deleting with `d` updates cached sizes up the tree instead of forcing a rescan
 - **Line counting** — automatic line count for the selected text file; batch count all with `s`
 - **Hex view** — built-in hex dump for binary files (`xxd` on macOS, `hexdump` fallback on Linux)
 - **Large file protection** — prevents accidentally opening very large blob files
 - **Fuzzy search** — filter entries in real time with subsequence matching
-- **Symlink detection** — symlinks shown with `→` / `⇢` indicators
+- **Symlink detection** — symlinks shown with `→` / `⇢` indicators; symlinked directories can be opened but are never followed when sizing, so nothing is counted twice
 - **Move to trash** — safely delete files/directories with `d`
 - **Cross-platform** — works on macOS, Linux, and Windows (Quick Look, file open, trash, and hex view adapt per OS)
 - **CPU profiling** — built-in `--profile` flag for performance analysis

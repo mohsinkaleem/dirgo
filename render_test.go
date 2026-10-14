@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func makeTestModel(entryCount int) Model {
@@ -31,17 +32,21 @@ func makeTestModel(entryCount int) Model {
 	}
 
 	return Model{
-		width:       120,
-		height:      40,
-		entries:     entries,
-		filtered:    append([]FileEntry(nil), entries...),
-		totalSize:   totalSize,
-		totalFiles:  entryCount - 1,
-		totalDirs:   1,
-		path:        "/home/user/project",
-		keys:        DefaultKeyMap(),
-		viewBuf:     &strings.Builder{},
-		searchInput: textinput.New(),
+		width:         120,
+		height:        40,
+		entries:       entries,
+		filtered:      append([]FileEntry(nil), entries...),
+		totalSize:     totalSize,
+		totalFiles:    entryCount - 1,
+		totalDirs:     1,
+		path:          "/home/user/project",
+		keys:          DefaultKeyMap(),
+		viewBuf:       &strings.Builder{},
+		searchInput:   textinput.New(),
+		cache:         newLRUCache(10),
+		cursorHistory: make(map[string]string),
+		scans:         make(map[string]*ScanProgress),
+		trashing:      make(map[string]bool),
 	}
 }
 
@@ -155,5 +160,26 @@ func BenchmarkApplyFilterWithSearch(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		m.applyFilter()
+	}
+}
+
+func TestFooterFitsOneLine(t *testing.T) {
+	m := makeTestModel(3)
+	for _, w := range []int{40, 60, 80, 120, 200} {
+		m.width = w
+		got := renderFooter(m)
+		if lines := strings.Count(got, "\n") + 1; lines != 1 {
+			t.Errorf("width %d: footer is %d lines", w, lines)
+		}
+		if lipgloss.Width(got) > w {
+			t.Errorf("width %d: footer is %d wide", w, lipgloss.Width(got))
+		}
+		if w >= 40 && !strings.Contains(got, "quit") {
+			t.Errorf("width %d: quit hint dropped", w)
+		}
+	}
+	m.width = 200
+	if got := renderFooter(m); !strings.Contains(got, "nav") || !strings.Contains(got, "hex") {
+		t.Errorf("wide footer lost hints: %q", got)
 	}
 }

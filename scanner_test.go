@@ -43,7 +43,7 @@ func makeDeepDir(t testing.TB, depth, filesPerLevel int) string {
 
 func TestScanDirectory(t *testing.T) {
 	dir := makeTempDir(t, 5, 3, 2)
-	cmd := scanDirectory(dir, nil)
+	cmd := scanDirectory(dir, nil, nil)
 	msg := cmd()
 
 	result, ok := msg.(scanResultMsg)
@@ -69,7 +69,7 @@ func TestScanDirectory(t *testing.T) {
 
 func TestDirSizeComputed(t *testing.T) {
 	dir := makeTempDir(t, 0, 1, 10)
-	cmd := scanDirectory(dir, nil)
+	cmd := scanDirectory(dir, nil, nil)
 	msg := cmd()
 
 	result, ok := msg.(scanResultMsg)
@@ -98,7 +98,7 @@ func TestDirSizeComputed(t *testing.T) {
 
 func TestSmartRefreshUnchanged(t *testing.T) {
 	dir := makeTempDir(t, 3, 0, 0)
-	scanMsg := scanDirectory(dir, nil)().(scanResultMsg)
+	scanMsg := scanDirectory(dir, nil, nil)().(scanResultMsg)
 
 	cmd := smartRefreshCmd(dir, scanMsg, nil)
 	msg := cmd()
@@ -110,7 +110,7 @@ func TestSmartRefreshUnchanged(t *testing.T) {
 
 func TestSmartRefreshChanged(t *testing.T) {
 	dir := makeTempDir(t, 3, 0, 0)
-	scanMsg := scanDirectory(dir, nil)().(scanResultMsg)
+	scanMsg := scanDirectory(dir, nil, nil)().(scanResultMsg)
 
 	os.WriteFile(filepath.Join(dir, "new_file.txt"), []byte("new"), 0o644)
 
@@ -168,11 +168,101 @@ func TestParallelForRunsEveryIndexOnce(t *testing.T) {
 	}
 }
 
+// Symlinked directories stay navigable but are not followed when sizing: a
+// link to a big tree (or to /) must not be counted or walked.
+func TestSymlinkedDirIsNotFollowed(t *testing.T) {
+	big := makeTempDir(t, 50, 0, 0)
+	dir := makeTempDir(t, 1, 0, 0)
+	if err := os.Symlink(big, filepath.Join(dir, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	res := scanDirectory(dir, nil, nil)().(scanResultMsg)
+	var link FileEntry
+	for _, e := range res.entries {
+		if e.Name == "link" {
+			link = e
+		}
+	}
+	if !link.IsDir || !link.IsSymlink {
+		t.Fatalf("link entry = %+v, want a symlinked dir", link)
+	}
+	if link.ChildFiles != 0 || link.Size > 4096 {
+		t.Errorf("link was followed: size=%d childFiles=%d", link.Size, link.ChildFiles)
+	}
+	if res.totalDirs != 1 || res.totalFiles != 1 {
+		t.Errorf("totals = %d dirs / %d files, want 1 / 1", res.totalDirs, res.totalFiles)
+	}
+}
+
+// A child's own scan must agree with its row in the parent's scan; going up
+// reuses the former in place of the latter.
+func TestSubtreeOfMatchesParentRow(t *testing.T) {
+	root := makeTempDir(t, 2, 1, 3)
+	child := filepath.Join(root, "subdir_0000")
+	nested := makeDeepDir(t, 3, 2)
+	if err := os.Symlink(nested, filepath.Join(child, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	os.MkdirAll(filepath.Join(child, "a", "b"), 0o755)
+	os.WriteFile(filepath.Join(child, "a", "b", "deep.txt"), []byte("deep\n"), 0o644)
+
+	parent := scanDirectory(root, nil, nil)().(scanResultMsg)
+	var row FileEntry
+	for _, e := range parent.entries {
+		if e.Name == "subdir_0000" {
+			row = e
+		}
+	}
+	got := subtreeOf(scanDirectory(child, nil, nil)().(scanResultMsg))
+	want := subtreeTotals{size: row.Size, files: row.ChildFiles, dirs: row.ChildDirs}
+	if got != want {
+		t.Errorf("subtreeOf(child) = %+v, parent row = %+v", got, want)
+	}
+}
+
+// sizeTrees must match a plain sequential walk, however the work is split.
+func TestSizeTreesMatchesWalk(t *testing.T) {
+	root := makeTempDir(t, 0, 6, 5)
+	for i := 0; i < 6; i += 2 {
+		deep := filepath.Join(root, fmt.Sprintf("subdir_%04d", i), "x", "y", "z")
+		os.MkdirAll(deep, 0o755)
+		os.WriteFile(filepath.Join(deep, "f.txt"), make([]byte, 1000*i), 0o644)
+	}
+	var roots []string
+	for i := 0; i < 6; i++ {
+		roots = append(roots, filepath.Join(root, fmt.Sprintf("subdir_%04d", i)))
+	}
+	roots = append(roots, filepath.Join(root, "missing")) // unreadable counts as empty
+
+	for _, workers := range []int{1, 3, 16} {
+		got := sizeTrees(roots, workers, newScanProgress())
+		for i, r := range roots {
+			var want subtreeTotals
+			filepath.WalkDir(r, func(p string, d os.DirEntry, err error) error {
+				if err != nil || p == r {
+					return nil
+				}
+				if d.IsDir() {
+					want.dirs++
+					return nil
+				}
+				want.files++
+				info, _ := d.Info()
+				want.size += info.Size()
+				return nil
+			})
+			if got[i] != want {
+				t.Errorf("workers=%d %s: got %+v, want %+v", workers, filepath.Base(r), got[i], want)
+			}
+		}
+	}
+}
+
 func BenchmarkScanDirectory(b *testing.B) {
 	dir := makeTempDir(b, 100, 10, 5)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		scanDirectory(dir, nil)()
+		scanDirectory(dir, nil, nil)()
 	}
 }
 
@@ -180,7 +270,7 @@ func BenchmarkScanLargeDir(b *testing.B) {
 	dir := makeTempDir(b, 1000, 0, 0)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		scanDirectory(dir, nil)()
+		scanDirectory(dir, nil, nil)()
 	}
 }
 
@@ -188,6 +278,6 @@ func BenchmarkScanDeepDir(b *testing.B) {
 	dir := makeDeepDir(b, 5, 10)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		scanDirectory(dir, nil)()
+		scanDirectory(dir, nil, nil)()
 	}
 }

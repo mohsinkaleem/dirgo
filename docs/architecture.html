@@ -272,7 +272,7 @@ footer.end{
     <a href="#scanner">7 · Scanning pipeline</a>
     <a href="#concurrency">8 · Concurrency deep dive</a>
     <a href="#primitives">8.1 · Primitives in use</a>
-    <a href="#semaphore">8.2 · Bounded fan-out</a>
+    <a href="#semaphore">8.2 · Load-balanced sizing</a>
     <a href="#sliceshare">8.3 · Lock-free result writes</a>
     <a href="#progress-sec">8.4 · Atomic progress</a>
     <a href="#mutexmap">8.5 · Mutex-guarded map</a>
@@ -313,7 +313,7 @@ footer.end{
     <span class="chip on">Bubble Tea (MVU)</span>
     <span class="chip">Lipgloss</span>
     <span class="chip">Bubbles</span>
-    <span class="chip">goroutines + semaphores</span>
+    <span class="chip">goroutines + worker pools</span>
     <span class="chip">atomics</span>
     <span class="chip">sync.Pool</span>
     <span class="chip">LRU cache</span>
@@ -344,7 +344,7 @@ out of that tension:</p>
 
 <ul>
   <li><strong>The UI never blocks.</strong> All filesystem work happens in goroutines detached from the render loop.</li>
-  <li><strong>Work is parallel but bounded.</strong> Directory recursion fans out across cores, capped by a semaphore so the OS is not drowned in concurrent syscalls.</li>
+  <li><strong>Work is parallel but bounded.</strong> A fixed pool of workers shares directory recursion across cores, so no single subtree serialises the scan and the OS is not drowned in concurrent syscalls.</li>
   <li><strong>Progress is observable while it happens.</strong> Scanner goroutines publish counters through atomics that the UI samples on each spinner tick.</li>
   <li><strong>Nothing is scanned twice if it can be helped.</strong> An LRU cache plus a modtime check make re-navigation and refresh effectively free.</li>
   <li><strong>Rendering is allocation-averse.</strong> Reused builders, pre-computed styles, and slice reuse keep the per-frame cost flat.</li>
@@ -503,7 +503,7 @@ highlighting and "change this when you want to…" pointers, see the
 <tbody>
 <tr><td class="mono">main.go</td><td>Entry point</td><td>Flag parsing (<code>--version</code>, <code>--profile</code>), path validation via <code>os.Stat</code>, CPU profile lifecycle, program construction with <code>tea.WithAltScreen()</code> and <code>tea.WithMouseCellMotion()</code>.</td></tr>
 <tr><td class="mono">model.go</td><td>State + <code>Update</code> + <code>View</code></td><td>~40 fields of UI state, the message switch, navigation (<code>navigateIn/Up/To</code>), external process launchers (open, Quick Look, hex view), and the trash implementations per OS.</td></tr>
-<tr><td class="mono">scanner.go</td><td>All filesystem traversal</td><td><code>scanDirectory</code>, <code>dirSizeRecursive</code>, <code>smartRefreshCmd</code>, <code>countLinesCmd</code>, <code>countAllLinesCmd</code>, and the <code>ScanProgress</code> atomic counter block.</td></tr>
+<tr><td class="mono">scanner.go</td><td>All filesystem traversal</td><td><code>scanDirectory</code>, <code>sizeTrees</code>, <code>smartRefreshCmd</code>, <code>countLinesCmd</code>, <code>countAllLinesCmd</code>, and the <code>ScanProgress</code> atomic counter block.</td></tr>
 <tr><td class="mono">cache.go</td><td>Bounded LRU</td><td><code>container/list</code> + <code>map[string]*list.Element</code> behind a <code>sync.Mutex</code>; O(1) get/put/evict.</td></tr>
 <tr><td class="mono">entry.go</td><td>Domain model</td><td><code>FileEntry</code>, <code>ViewFilter</code>, size sorting, allocation-reusing <code>filterEntriesInto</code>, ASCII-fast <code>fuzzyMatch</code>.</td></tr>
 <tr><td class="mono">render.go</td><td>Presentation</td><td>Header (adaptive 1–2 lines), row layout arithmetic, footer key bar, centred help overlay.</td></tr>
@@ -590,10 +590,11 @@ They are plain structs — no interfaces, no channels exposed to application cod
 <tbody>
 <tr><td class="mono">scanResultMsg</td><td><code>scanDirectory</code> goroutine</td><td>Populates entries/totals, caches by path, computes deep totals, clears <code>loading</code>, releases the <code>ScanProgress</code> block, restores a remembered cursor, and fires a line-count command for the newly selected file.</td></tr>
 <tr><td class="mono">scanUpToDateMsg</td><td><code>smartRefreshCmd</code></td><td>Just clears <code>loading</code>. The screen never flickers because nothing was replaced.</td></tr>
-<tr><td class="mono">scanErrorMsg</td><td>scan / hex view</td><td>Stores the error for the centred error panel.</td></tr>
+<tr><td class="mono">scanErrorMsg</td><td>scan</td><td>Stores the error for the centred error panel and drops the previous listing, so no stale row stays selectable behind it.</td></tr>
+<tr><td class="mono">statusMsg</td><td>hex view</td><td>Shows a one-line message in the footer. Every action failure (trash, open, Quick Look, hex view, <kbd>c</kbd>) goes there instead of replacing the listing; the next key press clears it.</td></tr>
 <tr><td class="mono">lineCountMsg</td><td><code>countLinesCmd</code></td><td>Patches one entry in <code>entries</code>, <code>filtered</code>, <em>and</em> the cached copy — a write-back so re-navigation keeps the count.</td></tr>
 <tr><td class="mono">batchLineCountMsg</td><td><code>countAllLinesCmd</code></td><td>Bulk-applies a <code>map[name]int</code> across all three of the same locations.</td></tr>
-<tr><td class="mono">trashResultMsg</td><td><code>trashCmd</code></td><td>Removes the row locally, adjusts totals, recomputes every percentage, and invalidates the cache entry for the current path — deliberately avoiding a full rescan.</td></tr>
+<tr><td class="mono">trashResultMsg</td><td><code>trashCmd</code></td><td>Names the directory the entry was in, since the user may have moved on. Removes the row from that directory's listing and shrinks the matching row in every cached ancestor — no rescan, now or on the way back up. See <a href="#cache">§9</a>.</td></tr>
 <tr><td class="mono">spinner.TickMsg</td><td>bubbles/spinner</td><td>Advances the animation and samples the atomic progress counters into display fields.</td></tr>
 <tr><td class="mono">tea.KeyMsg</td><td>runtime</td><td>Routed through a mode cascade: goto → search → help → normal.</td></tr>
 <tr><td class="mono">tea.MouseMsg</td><td>runtime</td><td>Wheel up/down moves the cursor 3 rows and triggers a line count.</td></tr>
@@ -621,8 +622,8 @@ They are plain structs — no interfaces, no channels exposed to application cod
 
   <rect x="362" y="24" width="150" height="80" rx="10" class="bx-g"/>
   <text x="437" y="50" class="ttl" text-anchor="middle">3 · Dir sizes</text>
-  <text x="437" y="70" class="sm" text-anchor="middle">parallel recursion</text>
-  <text x="437" y="86" class="sm" text-anchor="middle">sem = min(NumCPU,16)</text>
+  <text x="437" y="70" class="sm" text-anchor="middle">shared dir queue</text>
+  <text x="437" y="86" class="sm" text-anchor="middle">min(NumCPU,16) workers</text>
 
   <rect x="536" y="24" width="150" height="80" rx="10" class="bx-g"/>
   <text x="611" y="50" class="ttl" text-anchor="middle">4 · File stat</text>
@@ -641,22 +642,22 @@ They are plain structs — no interfaces, no channels exposed to application cod
 
   <!-- fan-out detail -->
   <rect x="330" y="150" width="400" height="150" rx="10" class="bx" opacity=".55"/>
-  <text x="348" y="172" class="sm">PHASE 3 DETAIL — one goroutine per immediate subdirectory</text>
+  <text x="348" y="172" class="sm">PHASE 3 DETAIL — every worker pulls from one stack of directories</text>
 
   <rect x="352" y="188" width="86" height="34" rx="7" class="bx-p"/>
-  <text x="395" y="209" class="sm" text-anchor="middle">g₀ dir A</text>
+  <text x="395" y="209" class="sm" text-anchor="middle">worker w₀</text>
   <rect x="352" y="228" width="86" height="34" rx="7" class="bx-p"/>
-  <text x="395" y="249" class="sm" text-anchor="middle">g₁ dir B</text>
+  <text x="395" y="249" class="sm" text-anchor="middle">worker w₁</text>
   <rect x="352" y="268" width="86" height="24" rx="7" class="bx"/>
-  <text x="395" y="284" class="sm" text-anchor="middle">gₙ … blocked</text>
+  <text x="395" y="284" class="sm" text-anchor="middle">… wₙ</text>
 
   <rect x="470" y="196" width="106" height="56" rx="8" class="bx-o"/>
-  <text x="523" y="218" class="sm" text-anchor="middle">semaphore</text>
-  <text x="523" y="234" class="sm" text-anchor="middle">chan struct{}</text>
+  <text x="523" y="218" class="sm" text-anchor="middle">dir stack</text>
+  <text x="523" y="234" class="sm" text-anchor="middle">LIFO + Cond</text>
 
   <rect x="608" y="196" width="104" height="56" rx="8" class="bx-a"/>
-  <text x="660" y="218" class="sm" text-anchor="middle">results[i]</text>
-  <text x="660" y="234" class="sm" text-anchor="middle">no mutex</text>
+  <text x="660" y="218" class="sm" text-anchor="middle">per-root sums</text>
+  <text x="660" y="234" class="sm" text-anchor="middle">atomic.Int64</text>
 
   <path d="M438 205 H466" class="ln" marker-end="url(#ar2)"/>
   <path d="M438 245 H466 V226" class="ln" marker-end="url(#ar2)"/>
@@ -677,55 +678,55 @@ They are plain structs — no interfaces, no channels exposed to application cod
 <p><code>os.ReadDir</code> returns <code>[]os.DirEntry</code> from a single <code>getdirentries</code> syscall.
 Crucially, <code>DirEntry.IsDir()</code> and <code>.Type()</code> are answered from data the kernel already
 returned — no per-entry <code>lstat</code>. Symlinks get one extra <code>os.Stat</code> to decide whether they
-point at a directory (and should therefore be recursed into for sizing).</p>
+point at a directory. One that does is listed as a directory, so it can be opened, but is sized as the
+link itself and never followed: following it would count its target twice (on macOS <code>/etc</code> is
+a link into <code>/private/etc</code>) or, for a link to <code>/</code>, walk the whole disk. The deeper walk
+treats every symlink as a leaf too, so both levels agree.</p>
+
+<p>Subdirectories whose totals are already known are not walked at all. Going up into a parent that
+is not cached yet is the common case: the child you just left was sized a moment ago, so
+<code>enterDir</code> passes its totals (and any other cached children's) into the scan.</p>
 
 <h3>Phase 3 — recursive sizing, in parallel</h3>
 
-<p>Each immediate subdirectory is sized by <code>dirSizeRecursive</code>, which is a deliberate
-reimplementation of <code>filepath.WalkDir</code>:</p>
+<p>Every subdirectory left to walk becomes a root of <code>sizeTrees</code>. The unit of work is a
+single directory, not a whole subtree: a worker pops one, reads it, totals its files, and pushes its
+subdirectories back for whichever worker is free next.</p>
 
 <figure class="code">
-<figcaption><span class="tag">scanner.go</span><span>why not filepath.WalkDir</span></figcaption>
-<pre><code class="go">// dirSizeRecursive computes total size, file count, and subdirectory count using
-// os.ReadDir + manual recursion. More efficient than filepath.WalkDir because
-// os.ReadDir uses a single getdirentries syscall per directory, and we only call
-// Info() on files (not dirs) since we only need file sizes.
-func dirSizeRecursive(path string, prog *ScanProgress) (size int64, files int, dirs int) {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return 0, 0, 0 // unreadable dir contributes zero; never aborts the scan
+<figcaption><span class="tag">scanner.go</span><span>the sizeTrees worker loop</span></figcaption>
+<pre><code class="go">for {
+	job, ok := q.pop()                // blocks while others may still push work
+	if !ok {
+		return                        // every directory is done
 	}
-	for _, e := range entries {
+	children = children[:0]
+	var size, files int64
+	for _, e := range readDirUnsorted(job.path) {
 		if e.IsDir() {
-			dirs++
-			if prog != nil {
-				prog.Dirs.Add(1)
-			}
-			s, f, d := dirSizeRecursive(filepath.Join(path, e.Name()), prog)
-			size += s
-			files += f
-			dirs += d
-		} else {
-			files++
-			if info, err := e.Info(); err == nil {
-				size += info.Size()
-				if prog != nil {
-					prog.Files.Add(1)
-					prog.Size.Add(info.Size())
-				}
-			}
+			children = append(children, dirJob{path: job.path + sep + e.Name(), root: job.root})
+			continue
+		}
+		files++
+		if info, err := e.Info(); err == nil {
+			size += info.Size()
 		}
 	}
-	return size, files, dirs
+	a := &amp;accs[job.root]              // one atomic add per directory, not per file
+	a.size.Add(size)
+	a.files.Add(files)
+	a.dirs.Add(int64(len(children)))
+	q.finish(children)                // queue children, mark this job done
 }
 </code></pre>
 </figure>
 
-<p>Three things matter here:</p>
+<p>Four things matter here:</p>
 <ol>
   <li><strong>Errors are swallowed, not propagated.</strong> A permission-denied subtree contributes <code>0</code> and the scan continues. A disk analyzer that dies on <code>/proc</code> or a locked folder is useless.</li>
-  <li><strong>Recursion is sequential inside each goroutine.</strong> It does <em>not</em> spawn a goroutine per nested directory. See <a href="#semaphore">§8.2</a> for why that restraint is essential.</li>
-  <li><strong>Progress is published inline.</strong> The atomic adds happen at the leaves, so the counter climbs smoothly even on a single enormous subtree.</li>
+  <li><strong>Work is shared, not partitioned.</strong> A directory holding one giant <code>node_modules</code> and nine tiny folders keeps every worker busy until the end. See <a href="#semaphore">§8.2</a>.</li>
+  <li><strong>Progress is published per directory.</strong> Counters are shared by every worker, so they are bumped once per directory read rather than once per file; the display still climbs smoothly.</li>
+  <li><strong>No wasted work per entry.</strong> <code>File.ReadDir</code> skips the name sort <code>os.ReadDir</code> does, child paths are built by concatenation rather than <code>filepath.Join</code>, and <code>Info()</code> (an <code>lstat</code>) runs only for non-directories.</li>
 </ol>
 
 <h3>Phase 4–5 — stat, percentage, sort</h3>
@@ -758,90 +759,88 @@ importantly, it <em>declines</em> to use concurrency in several places where it 
 <thead><tr><th class="mono">Primitive</th><th>Where</th><th>Why this one</th></tr></thead>
 <tbody>
 <tr><td class="mono">goroutine + tea.Cmd</td><td>every I/O operation</td><td>The runtime already spawns a goroutine per command and funnels the return value into the message queue. Free structured concurrency with a serialisation point.</td></tr>
-<tr><td class="mono">chan struct{} (semaphore)</td><td>dir sizing, file stat, batch line count</td><td>Caps <em>in-flight syscalls</em>. A buffered channel is the cheapest counting semaphore in Go — no allocation per acquire, and it blocks rather than spins.</td></tr>
-<tr><td class="mono">sync.WaitGroup</td><td>all three fan-outs</td><td>Join barrier. The parent must not read <code>results</code> until every writer has finished — <code>Wait()</code> provides the happens-before edge that makes those reads legal.</td></tr>
-<tr><td class="mono">atomic.Int64</td><td><code>ScanProgress</code></td><td>Many writers, one reader, high frequency, and a torn read is harmless. A mutex here would serialise the hot leaf loop for no benefit.</td></tr>
-<tr><td class="mono">sync.Mutex</td><td>batch line-count map; LRU cache</td><td>Go maps and <code>container/list</code> are not concurrency-safe, and both are touched under low contention — a mutex is simpler and faster than sharding or <code>sync.Map</code> at this scale.</td></tr>
+<tr><td class="mono">fixed worker pool</td><td>dir sizing, file stat, batch line count</td><td>Caps <em>in-flight syscalls</em> at N goroutines, however many items there are. Memory stays flat on directories with hundreds of thousands of entries.</td></tr>
+<tr><td class="mono">sync.Cond</td><td>directory stack in <code>sizeTrees</code></td><td>An idle worker must sleep while the stack is empty <em>but other workers may still push to it</em>. A channel cannot express that; a mutex plus condition variable can.</td></tr>
+<tr><td class="mono">sync.WaitGroup</td><td>all fan-outs</td><td>Join barrier. The parent must not read <code>results</code> until every writer has finished — <code>Wait()</code> provides the happens-before edge that makes those reads legal.</td></tr>
+<tr><td class="mono">atomic.Int64</td><td><code>ScanProgress</code>, per-root totals</td><td>Many writers, one reader, high frequency, and a torn read is harmless. A mutex here would serialise the hot worker loop for no benefit.</td></tr>
+<tr><td class="mono">sync.Mutex</td><td>batch line-count map; LRU cache; directory stack</td><td>Go maps and <code>container/list</code> are not concurrency-safe, and both are touched under low contention — a mutex is simpler and faster than sharding or <code>sync.Map</code> at this scale.</td></tr>
 <tr><td class="mono">sync.Pool</td><td>64 KB line-count buffers</td><td>The batch counter can open hundreds of files; without pooling that is hundreds of 64 KB allocations churning the heap in a burst.</td></tr>
-<tr><td class="mono">index-disjoint slice writes</td><td>dir results, file stat results</td><td>Distinct elements of a slice are distinct memory — concurrent writes to different indices need no synchronisation at all. Zero-cost "sharding".</td></tr>
+<tr><td class="mono">index-disjoint slice writes</td><td>file stat results</td><td>Distinct elements of a slice are distinct memory — concurrent writes to different indices need no synchronisation at all. Zero-cost "sharding".</td></tr>
 </tbody>
 </table>
 </div>
 
 <!-- ---------- 8.2 ---------- -->
-<h3 id="semaphore">8.2 · Bounded fan-out: the semaphore pattern</h3>
+<h3 id="semaphore">8.2 · Load-balanced sizing: a shared directory stack</h3>
 
-<p>The core of phase 3. Read it closely — the ordering of <code>wg.Add</code>, <code>go</code>, and the
-semaphore acquire is intentional. (The <a href="explore.html#scan">scan simulator</a> lets you watch this
-exact loop execute with adjustable core counts and work distributions.)</p>
+<p>The core of phase 3. The workers coordinate through one small structure: a stack of directories
+still to read and a count of jobs that are queued or in progress.</p>
 
 <figure class="code">
-<figcaption><span class="tag">scanner.go</span><span>parallel directory sizing</span></figcaption>
-<pre><code class="go">results := make([]dirResult, len(dirEntryIndices))
-var wg sync.WaitGroup
-sem := make(chan struct{}, minInt(runtime.NumCPU(), 16))
-
-for ri, di := range dirEntryIndices {
-	wg.Add(1)                                  // registered BEFORE the goroutine starts
-	go func(resultIdx int, info dirInfo2) {
-		defer wg.Done()
-		sem &lt;- struct{}{}                      // acquire — blocks when N are in flight
-		defer func() { &lt;-sem }()               // release
-
-		dirPath := filepath.Join(absPath, info.name)
-		size, files, dirs := dirSizeRecursive(dirPath, prog)
-		results[resultIdx] = dirResult{index: info.index, size: size,
-			childFiles: files, childDirs: dirs}
-	}(ri, di)                                  // params copied — no loop-variable capture
+<figcaption><span class="tag">scanner.go</span><span>dirQueue</span></figcaption>
+<pre><code class="go">func (q *dirQueue) pop() (dirJob, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for len(q.stack) == 0 {
+		if q.pending == 0 {
+			return dirJob{}, false         // nothing queued, nothing running: done
+		}
+		q.cond.Wait()                      // empty now, but a running job may push more
+	}
+	job := q.stack[len(q.stack)-1]         // LIFO: depth-first keeps the stack short
+	q.stack = q.stack[:len(q.stack)-1]
+	return job, true
 }
-wg.Wait()                                      // join: all writes to results happen-before here
 
-for _, r := range results {
-	entries[r.index].Size = r.size
-	entries[r.index].ChildFiles = r.childFiles
-	entries[r.index].ChildDirs = r.childDirs
-	totalSize += r.size
+func (q *dirQueue) finish(children []dirJob) {
+	q.mu.Lock()
+	q.stack = append(q.stack, children...)
+	q.pending += len(children) - 1         // children in, this job out — one step
+	wake := len(children) &gt; 0 || q.pending == 0
+	q.mu.Unlock()
+	if wake {
+		q.cond.Broadcast()
+	}
 }
 </code></pre>
 </figure>
+
+<p>Termination falls out of that one line in <code>finish</code>: a job adds its children and removes
+itself in the same critical section, so <code>pending</code> reaches zero exactly once, after the last
+directory, and the broadcast releases every sleeping worker.</p>
+
+<p>(The <a href="explore.html#scan">scan simulator</a> still models the earlier design, which gave each
+top-level subdirectory its own goroutine. It shows the imbalance this one removes.)</p>
 
 <h4>Why the cap is <code>min(NumCPU, 16)</code></h4>
 
 <p>Directory sizing is <strong>I/O bound with a CPU-bound decoding component</strong>. Two ceilings apply:</p>
 <ul>
-  <li><code>NumCPU</code> — beyond that, additional goroutines only add scheduler churn for the parsing half of the work.</li>
+  <li><code>NumCPU</code> — beyond that, additional goroutines only add scheduler churn for the parsing half of the work. Measured on an Apple-silicon SSD, no pool wider than 8–16 workers was any faster.</li>
   <li><code>16</code> — a hard cap for large machines. On a 64-core box, 64 concurrent directory walks would thrash the page cache and, on spinning or network-backed storage, degrade badly through seek contention. Filesystems do not scale linearly with concurrent readers.</li>
 </ul>
 
-<h4>Why goroutines are spawned eagerly but gated inside</h4>
+<h4>Why not one goroutine per top-level subdirectory</h4>
 
-<p>All N goroutines are created immediately; the semaphore is acquired <em>inside</em> the goroutine body.
-A goroutine parked on a channel send costs ~2 KB of stack and no CPU, so for the realistic case
-(tens to low hundreds of subdirectories) this is cheaper and far simpler than a worker-pool-with-job-channel.
-The pattern is: <strong>unbounded goroutines, bounded work</strong>.</p>
+<p>That was the original design. It is simple, but the slowest subtree sets the wall-clock time: in
+a home directory, <code>~/Library</code> carries the scan while the other workers sit idle. On real
+trees with one dominant child, the shared stack cut warm-cache scans by about 3.5×
+(<code>~/go</code>: 4.2 s → 1.2 s; a 640k-file <code>~/Documents</code>: 15.5 s → 4.5 s), with
+identical totals.</p>
 
-<h4>Why the recursion does not fan out further</h4>
+<h4>Why a stack and not a goroutine per directory</h4>
 
-<p><code>dirSizeRecursive</code> is plain recursion. If it spawned a goroutine per nested directory, a
-<code>node_modules</code> tree would create tens of thousands of goroutines, all queued on the same
-semaphore, with stack memory proportional to the tree size. Instead concurrency is applied at exactly
-one level — the widest, cheapest place to parallelise — and depth stays sequential.</p>
-
-<div class="note warn">
-  <span class="t">Load-balancing consequence</span>
-  <p>Work is partitioned by <em>top-level subdirectory</em>, so a directory containing one giant
-  <code>node_modules</code> and nine tiny folders gets no speedup: nine goroutines finish instantly and
-  one carries the whole scan. This is the accepted trade-off for avoiding recursive fan-out. A
-  work-stealing deque would fix it at a large complexity cost, and the progress counters keep the UI
-  informative in the meantime.</p>
-</div>
+<p>Spawning per nested directory would put tens of thousands of goroutines on a
+<code>node_modules</code> tree, with stack memory proportional to the tree. A stack of
+<code>dirJob</code> values costs two words per pending directory, and taking the newest first walks
+depth-first, so it stays short.</p>
 
 <!-- ---------- 8.3 ---------- -->
 <h3 id="sliceshare">8.3 · Lock-free result collection</h3>
 
-<p>Notice what is <em>absent</em> from the snippet above: there is no mutex around <code>results</code>,
-and no channel collecting outputs. Each goroutine receives a unique <code>resultIdx</code> and writes
-only to <code>results[resultIdx]</code>.</p>
+<p>Phase 4's parallel file stat collects its output with no mutex around <code>results</code> and no
+channel. Each worker claims indices from a shared counter and writes only to
+<code>results[i]</code> for the indices it claimed.</p>
 
 <p>This is safe because the Go memory model treats distinct slice elements as distinct memory
 locations. Concurrent writes to different indices of the same slice are not a data race. The slice
@@ -851,23 +850,22 @@ happens-before edge that makes the subsequent sequential read of every element w
 <div class="split">
 <figure class="code" style="margin:0">
 <figcaption><span class="tag">chosen</span><span>index write · 0 sync</span></figcaption>
-<pre><code class="go">results[i] = dirResult{...}
+<pre><code class="go">results[i] = FileEntry{...}
 // … wg.Wait() …
 for _, r := range results { … }
 </code></pre>
 </figure>
 <figure class="code" style="margin:0">
 <figcaption><span class="tag">rejected</span><span>channel collect · N allocs + select</span></figcaption>
-<pre><code class="go">ch := make(chan dirResult, n)
-ch &lt;- dirResult{...}
+<pre><code class="go">ch := make(chan FileEntry, n)
+ch &lt;- FileEntry{...}
 for r := range ch { … }   // + closer goroutine
 </code></pre>
 </figure>
 </div>
 
-<p>The same technique appears in phase 4 for parallel file stat, where results are collected into
-<code>[]FileEntry</code> by index and then appended to <code>entries</code> in order — which also makes the
-parallel and sequential paths produce byte-identical output.</p>
+<p>Collecting by index and then appending to <code>entries</code> in order also makes the parallel
+and sequential paths produce byte-identical output.</p>
 
 <!-- ---------- 8.4 ---------- -->
 <h3 id="progress-sec">8.4 · Atomic progress counters</h3>
@@ -907,7 +905,7 @@ type ScanProgress struct {
 <p>This is a textbook <strong>multi-writer / single-reader telemetry</strong> arrangement:</p>
 
 <ul>
-  <li><strong>Writers</strong> — every goroutine in the phase-3 fan-out, calling <code>Add(1)</code> at leaf granularity, potentially millions of times.</li>
+  <li><strong>Writers</strong> — every phase-3 worker, adding one directory's totals at a time, tens of thousands of times per scan.</li>
   <li><strong>Reader</strong> — the UI goroutine, ~10 times per second.</li>
   <li><strong>Consistency</strong> — the three counters are read independently, so a sample can show 1,000 files but a size that lags by a few entries. For a progress indicator this is invisible and irrelevant. Buying atomicity across all three (a mutex or a seqlock) would cost far more than the inconsistency does.</li>
 </ul>
@@ -1061,12 +1059,12 @@ between a clean process table and a slow leak in a long-lived session.</p>
 
 <figure class="code">
 <figcaption><span class="tag">model.go</span><span>hex view via tea.ExecProcess</span></figcaption>
-<pre><code class="go">shellCmd := fmt.Sprintf("%s %q | %s", hexCmd, targetPath, pager) // xxd file | less
+<pre><code class="go">shellCmd := fmt.Sprintf("%s %s | %s", hexCmd, shellQuote(targetPath), pager) // xxd file | less
 c = exec.Command("sh", "-c", shellCmd)
 
 return m, tea.ExecProcess(c, func(err error) tea.Msg {
 	if err != nil {
-		return scanErrorMsg{err: fmt.Errorf("hex view failed: %w", err)}
+		return statusMsg{text: fmt.Sprintf("hex view failed: %v", err), isErr: true}
 	}
 	return nil
 })
@@ -1090,7 +1088,9 @@ goroutine, and name its protection.</p>
 <thead><tr><th>Shared state</th><th>Writers</th><th>Readers</th><th>Protection</th></tr></thead>
 <tbody>
 <tr><td class="mono">Model (all fields)</td><td>UI goroutine</td><td>UI goroutine</td><td><span class="pill ok">none needed</span> value receiver + serial message delivery</td></tr>
-<tr><td class="mono">results[i] (scan)</td><td>N workers, disjoint indices</td><td>parent, after join</td><td><span class="pill ok">none needed</span> disjoint memory + <code>WaitGroup</code> edge</td></tr>
+<tr><td class="mono">dir stack (sizeTrees)</td><td>N workers</td><td>N workers</td><td><span class="pill cool">sync.Mutex</span> + <code>sync.Cond</code></td></tr>
+<tr><td class="mono">per-root totals</td><td>N workers</td><td>parent, after join</td><td><span class="pill cool">atomic.Int64</span></td></tr>
+<tr><td class="mono">results[i] (file stat)</td><td>N workers, disjoint indices</td><td>parent, after join</td><td><span class="pill ok">none needed</span> disjoint memory + <code>WaitGroup</code> edge</td></tr>
 <tr><td class="mono">ScanProgress</td><td>N workers</td><td>UI goroutine</td><td><span class="pill cool">atomic.Int64</span></td></tr>
 <tr><td class="mono">counts map</td><td>N workers</td><td>parent, after join</td><td><span class="pill cool">sync.Mutex</span></td></tr>
 <tr><td class="mono">lruCache</td><td>UI goroutine only <em>today</em></td><td>UI goroutine</td><td><span class="pill cool">sync.Mutex</span> — defensive, keeps future off-thread use safe</td></tr>
@@ -1125,7 +1125,7 @@ into an older codebase.</p>
 <table>
 <thead><tr><th>Constant</th><th class="mono">Value</th><th>Reasoning</th></tr></thead>
 <tbody>
-<tr><td>Directory-sizing concurrency</td><td class="mono">min(NumCPU, 16)</td><td>Balances core count against filesystem seek contention; the hard cap protects large-core machines from thrashing storage.</td></tr>
+<tr><td>Directory-sizing concurrency</td><td class="mono">min(NumCPU, 16)</td><td>Balances core count against filesystem seek contention; the hard cap protects large-core machines from thrashing storage. Wider pools measured no faster on SSD.</td></tr>
 <tr><td>File-stat concurrency</td><td class="mono">NumCPU</td><td><code>stat</code> is short and cache-friendly; no benefit from oversubscription.</td></tr>
 <tr><td>Parallel-stat threshold</td><td class="mono">&gt; 20 files</td><td>Below this, goroutine creation + <code>WaitGroup</code> + semaphore overhead exceeds the syscall cost. dirgo keeps a literal sequential fallback branch for the small case.</td></tr>
 <tr><td>Line-count concurrency</td><td class="mono">NumCPU</td><td>Mixed I/O and SIMD scanning; core count is the right ceiling.</td></tr>
@@ -1243,17 +1243,28 @@ cached value:</p>
   <p>A directory's mtime changes when entries are <em>added or removed</em>, not when a file inside it
   merely grows. So refreshing after appending to a log file will report "up to date" even though the
   size changed. This is a conscious trade: the check is essentially free and correct for the common
-  case (files created, deleted, renamed). Deletion via <kbd>d</kbd> sidesteps it entirely by
-  invalidating the cache entry directly.</p>
+  case (files created, deleted, renamed). Deletion via <kbd>d</kbd> records the directory's
+  post-delete mtime in the patched listing, so refreshing right after a delete is still free.</p>
 </div>
 
 <h3>Deletion without rescanning</h3>
 
-<p>When <code>trashResultMsg</code> arrives, dirgo patches state in place rather than re-walking the
-directory: it removes the row, decrements the totals, recomputes every percentage against the new
-total, recomputes deep totals, re-applies the filter, clamps the cursor into range, and deletes the
-now-stale cache entry. A rescan would be correct but would cost seconds on a large tree and would
-scroll the user's position away.</p>
+<p><code>trashResultMsg</code> carries the directory the entry was in — Finder can take a second, and
+the user may have pressed <kbd>←</kbd> in the meantime. dirgo then patches every listing it knows
+about instead of re-walking anything:</p>
+
+<ul>
+  <li>The directory itself loses the row; its totals and percentages are recomputed.</li>
+  <li>Each cached ancestor's row on the way down shrinks by what was removed (size, files,
+  directories) and is re-sorted. The walk up stops at a symlink, since parents never counted what
+  lies behind one.</li>
+  <li>Whichever of these is on screen is redrawn with the cursor kept on the same entry, or on the same
+  row if that entry was the one deleted.</li>
+</ul>
+
+<p>Entries are copied before patching: the cache and the model share the old slice. An earlier
+version deleted the cache entry instead, so the next visit to that directory rescanned the whole
+tree, and a late result could patch whichever directory happened to be on screen.</p>
 
 <!-- ============================================================ -->
 <h2 id="linecount"><span class="hash">10</span>Line counting &amp; binary detection</h2>
@@ -1422,11 +1433,16 @@ lower-priority handlers cannot see the event.</p>
 
 <ul>
   <li><code>cursorHistory map[string]string</code> — path → last selected entry name, capped at 500 with O(1) arbitrary eviction.</li>
-  <li><code>pendingCursorEntry</code> — because a scan is asynchronous, the restore target is stashed on the model and applied when <code>scanResultMsg</code> lands. On a cache hit the restore happens immediately instead.</li>
+  <li><code>pendingCursorEntry</code> — because a scan is asynchronous, the restore target is stashed on the model and applied when <code>scanResultMsg</code> lands. On a cache hit the restore happens immediately instead. A refresh stashes the current selection the same way.</li>
 </ul>
 
 <p>Names are stored rather than indices, so the cursor lands on the right <em>entry</em> even if sizes
 changed and the sort order shifted.</p>
+
+<p>All three entry points below finish in <code>enterDir</code>, which shows a cached listing at once
+or starts a scan. When it scans, it first clears the old rows, because nothing on screen should be
+selectable while the scanning view hides them. Re-entering a directory whose scan is still running
+joins that scan instead of starting another.</p>
 
 <h3>Navigation entry points</h3>
 
@@ -1436,7 +1452,7 @@ changed and the sort order shifted.</p>
 <tbody>
 <tr><td class="mono">navigateIn</td><td><kbd>→</kbd> <kbd>l</kbd> <kbd>Enter</kbd></td><td>Directory → descend (cache hit renders instantly, marked <code>⚡cached</code>). File → open with the OS default handler, unless it is a binary over 100 MB, which is refused with a pointer to hex view.</td></tr>
 <tr><td class="mono">navigateUp</td><td><kbd>←</kbd> <kbd>Backspace</kbd></td><td>Ascends to the parent and highlights the directory you came from. No-op at filesystem root.</td></tr>
-<tr><td class="mono">navigateTo</td><td><kbd>c</kbd></td><td>Free-form path entry: expands <code>~</code>, resolves relative paths against the current directory, <code>filepath.Clean</code>s, then validates with <code>os.Stat</code> before committing.</td></tr>
+<tr><td class="mono">navigateTo</td><td><kbd>c</kbd></td><td>Free-form path entry: expands <code>~</code>, resolves relative paths against the current directory, <code>filepath.Clean</code>s, then validates with <code>os.Stat</code> before committing. A bad path is reported in the footer and the listing stays.</td></tr>
 </tbody>
 </table>
 </div>
@@ -1598,11 +1614,10 @@ patterns in <a href="#concurrency">§8</a> are continuously validated by the sca
 <table>
 <thead><tr><th>Area</th><th>Current behaviour</th><th>Consequence / possible direction</th></tr></thead>
 <tbody>
-<tr><td><strong>Scan cancellation</strong></td><td>Commands take no <code>context.Context</code>. Navigating away mid-scan leaves the old scan running to completion.</td><td>Wasted work, and a late <code>scanResultMsg</code> sets <code>m.path = msg.path</code> — so a slow scan can pull the view back to a directory you already left. A generation counter on the model, or a <code>context.WithCancel</code> stored per scan, would fix both.</td></tr>
-<tr><td><strong>Uneven work distribution</strong></td><td>Parallelism is one goroutine per top-level subdirectory.</td><td>A single dominant subtree gets no parallelism at all. Recursive fan-out with a shared semaphore, or a work-stealing queue, would balance it — at meaningful complexity cost.</td></tr>
+<tr><td><strong>Scan cancellation</strong></td><td>Commands take no <code>context.Context</code>. Navigating away mid-scan leaves the old scan running to completion.</td><td>Wasted I/O, though not wasted results: the late <code>scanResultMsg</code> is cached, and returning to that directory joins the running scan. A <code>context.WithCancel</code> per scan would stop the work outright.</td></tr>
 <tr><td><strong>mtime-only change detection</strong></td><td>Smart refresh compares directory mtime.</td><td>Growth of an existing file inside the directory is missed. Hashing the entry list or comparing aggregate size would catch more, for more cost.</td></tr>
 <tr><td><strong>Hard links &amp; sparse files</strong></td><td>Sizes come from <code>Info().Size()</code>.</td><td>Hard-linked files are counted once per link and sparse files report apparent rather than allocated size. Reading <code>st_blocks</code> via <code>syscall.Stat_t</code> would give true on-disk usage, at the price of platform-specific code.</td></tr>
-<tr><td><strong>Symlink loops</strong></td><td>Only immediate symlinks are resolved to decide dir-ness; recursion follows real directories.</td><td>Adequate in practice, but a directory symlink cycle within a scanned subtree could in principle be traversed repeatedly. A visited-inode set would make it airtight.</td></tr>
+<tr><td><strong>Symlinked directories</strong></td><td>Listed and navigable, but sized as the link itself; never followed while sizing.</td><td>No double counting and no loops, but a parent shows nothing of a linked tree's size — open the link to see it. Mount points are crossed, so scanning <code>/</code> on macOS still sees the data volume twice through its firmlinks.</td></tr>
 <tr><td><strong>No disk-persisted cache</strong></td><td>Cache lives only for the session.</td><td>A deliberate simplicity choice, documented in the README: gob persistence was considered and dropped to keep behaviour deterministic and avoid stale-state bugs across sessions.</td></tr>
 <tr><td><strong>Single sort order</strong></td><td>Always size-descending.</td><td>Sorting by name, mtime, or line count would need a sort-mode field and a keybinding, but no architectural change.</td></tr>
 </tbody>

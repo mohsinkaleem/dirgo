@@ -268,6 +268,14 @@ func renderFooter(m Model) string {
 		return searchPromptStyle.Render(" cd ") + m.gotoInput.View()
 	}
 
+	if m.status != "" {
+		st := statusInfoStyle
+		if m.statusErr {
+			st = statusErrStyle
+		}
+		return footerStyle.Width(m.width).Render(st.Render(truncateStrVisual(m.status, maxInt(1, m.width-2))))
+	}
+
 	keys := []struct {
 		key  string
 		desc string
@@ -290,9 +298,21 @@ func renderFooter(m Model) string {
 		{"q", "quit"},
 	}
 
+	// Keep the footer on one line: wrapped, it would push the header off the
+	// top of the screen. Hints are dropped from the end of the list first,
+	// except help and quit, which always stay.
+	hintWidth := func(i int) int { return lipgloss.Width(keys[i].key) + 1 + lipgloss.Width(keys[i].desc) }
+	fixed := keys[len(keys)-2:]
+	width := hintWidth(len(keys)-2) + 2 + hintWidth(len(keys)-1)
+	shown := 0
+	for shown < len(keys)-2 && width+hintWidth(shown)+2 <= m.width-2 { // footerStyle padding
+		width += hintWidth(shown) + 2
+		shown++
+	}
+
 	// Use strings.Builder instead of slice+Join to reduce allocations
 	var b strings.Builder
-	for i, k := range keys {
+	for i, k := range append(keys[:shown:shown], fixed...) {
 		if i > 0 {
 			b.WriteString("  ")
 		}

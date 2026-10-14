@@ -127,3 +127,21 @@ func TestSortBySize(t *testing.T) {
 		t.Errorf("sort order wrong: %v", entries)
 	}
 }
+
+func TestLRUCacheDeleteTree(t *testing.T) {
+	c := newLRUCache(10)
+	for _, p := range []string{"/a", "/a/b", "/a/b/c", "/ab", "/x"} {
+		c.Put(p, scanResultMsg{path: p})
+	}
+	c.DeleteTree("/a")
+	for _, p := range []string{"/a", "/a/b", "/a/b/c"} {
+		if _, ok := c.Get(p); ok {
+			t.Errorf("%s survived DeleteTree", p)
+		}
+	}
+	for _, p := range []string{"/ab", "/x"} {
+		if _, ok := c.Get(p); !ok {
+			t.Errorf("%s was removed by DeleteTree(/a)", p)
+		}
+	}
+}

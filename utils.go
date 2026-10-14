@@ -40,7 +40,8 @@ func shortenPath(path string) string {
 	if err != nil {
 		return path
 	}
-	if strings.HasPrefix(path, home) {
+	// Match whole path segments: /Users/al must not shorten /Users/alex.
+	if path == home || strings.HasPrefix(path, home+string(filepath.Separator)) {
 		return "~" + path[len(home):]
 	}
 	return path

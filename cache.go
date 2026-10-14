@@ -2,6 +2,8 @@ package main
 
 import (
 	"container/list"
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -60,6 +62,30 @@ func (c *lruCache) Delete(key string) {
 	if el, ok := c.items[key]; ok {
 		c.ll.Remove(el)
 		delete(c.items, key)
+	}
+}
+
+// DeleteTree removes the cached listings of root and of every path below it.
+func (c *lruCache) DeleteTree(root string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	prefix := root + string(filepath.Separator)
+	for key, el := range c.items {
+		if key == root || strings.HasPrefix(key, prefix) {
+			c.ll.Remove(el)
+			delete(c.items, key)
+		}
+	}
+}
+
+// Each calls fn for every cached entry without changing recency. fn must not
+// call back into the cache.
+func (c *lruCache) Each(fn func(key string, val scanResultMsg)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for el := c.ll.Front(); el != nil; el = el.Next() {
+		item := el.Value.(*cacheItem)
+		fn(item.key, item.value)
 	}
 }
 

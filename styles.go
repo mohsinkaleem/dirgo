@@ -104,6 +104,13 @@ var (
 			Bold(true).
 			Padding(0, 1)
 
+	statusInfoStyle = lipgloss.NewStyle().
+			Foreground(colorCyan)
+
+	statusErrStyle = lipgloss.NewStyle().
+			Foreground(colorRed).
+			Bold(true)
+
 	spinnerStyle = lipgloss.NewStyle().
 			Foreground(colorCyan)
 
