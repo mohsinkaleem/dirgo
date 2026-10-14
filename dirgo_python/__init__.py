@@ -1,3 +1,3 @@
 """dirgo — Python wrapper for the dirgo Go binary."""
 
-__version__ = "1.2.1"
+__version__ = "1.3.0"
