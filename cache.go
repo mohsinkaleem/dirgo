@@ -2,7 +2,7 @@ package main
 
 import (
 	"container/list"
-	"path/filepath"
+	"os"
 	"strings"
 	"sync"
 )
@@ -69,9 +69,8 @@ func (c *lruCache) Delete(key string) {
 func (c *lruCache) DeleteTree(root string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	prefix := root + string(filepath.Separator)
 	for key, el := range c.items {
-		if key == root || strings.HasPrefix(key, prefix) {
+		if strings.HasPrefix(key, root) && (len(key) == len(root) || os.IsPathSeparator(key[len(root)])) {
 			c.ll.Remove(el)
 			delete(c.items, key)
 		}
